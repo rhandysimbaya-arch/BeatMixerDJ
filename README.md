@@ -1,4 +1,4 @@
-# Beat Mixer DJ
+# RB Pro Audio (DJ mixer)
 
 A two-deck DJ mixer for Android phones and tablets (Kotlin + Jetpack Compose, minSdk 26).
 The layout is based on the screenshot: decks A/B, filters, echo, mic / MC talk, auto-mix, REC,

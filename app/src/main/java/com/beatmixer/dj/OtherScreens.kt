@@ -125,7 +125,7 @@ fun DropsScreen(vm: MixerViewModel, modifier: Modifier = Modifier) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Heading("DROPS")
             Label("Tap to fire. Long-press to rename or replace the sound.", color = C.Dim, size = 12.sp, weight = FontWeight.Normal, maxLines = 8, modifier = Modifier.weight(1f))
-            PadButton(Modifier.height(34.dp), accent = C.Yellow, active = onlyFav, activeFill = Color(0xFF4A3B0E), onClick = { onlyFav = !onlyFav }) {
+            PadButton(Modifier.height(34.dp), accent = C.Yellow, active = onlyFav, activeFill = Color(0xFF3A3A3A), onClick = { onlyFav = !onlyFav }) {
                 Label("FAVORITES", color = C.Yellow, size = 12.sp, modifier = Modifier.padding(horizontal = 10.dp))
             }
         }
@@ -185,10 +185,10 @@ fun MusicScreen(
     }
     Column(modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            PadButton(Modifier.height(36.dp), accent = C.Orange, active = tab == 0, activeFill = Color(0xFF4A2F10), onClick = { tab = 0 }) {
+            PadButton(Modifier.height(36.dp), accent = C.Orange, active = tab == 0, activeFill = Color(0xFF3A0000), onClick = { tab = 0 }) {
                 Label("LIBRARY (${vm.library.size})", color = C.Orange, size = 12.sp, modifier = Modifier.padding(horizontal = 10.dp))
             }
-            PadButton(Modifier.height(36.dp), accent = C.Yellow, active = tab == 1, activeFill = Color(0xFF4A3B0E), onClick = { tab = 1 }) {
+            PadButton(Modifier.height(36.dp), accent = C.Yellow, active = tab == 1, activeFill = Color(0xFF3A3A3A), onClick = { tab = 1 }) {
                 Label("QUEUE (${vm.queue.size})", color = C.Yellow, size = 12.sp, modifier = Modifier.padding(horizontal = 10.dp))
             }
             Spacer(Modifier.weight(1f))

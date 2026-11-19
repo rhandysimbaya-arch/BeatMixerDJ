@@ -1,6 +1,7 @@
 package com.beatmixer.dj
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -25,6 +26,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.imageResource
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
@@ -39,17 +48,18 @@ import kotlin.math.min
 import kotlin.math.sin
 
 object C {
-    val Bg = Color(0xFF0B0D12)
-    val Panel = Color(0xFF14171E)
-    val Panel2 = Color(0xFF1B1F27)
-    val Border = Color(0xFF2A2F3A)
-    val Orange = Color(0xFFF29A3A)
-    val Blue = Color(0xFF3FBFE8)
-    val Green = Color(0xFF4CC76A)
-    val Red = Color(0xFFD93A3A)
-    val Yellow = Color(0xFFE3B341)
-    val Text = Color(0xFFE8EAF0)
-    val Dim = Color(0xFF8A90A0)
+    // RB Pro Audio theme: black, red and white
+    val Bg = Color(0xFF000000)
+    val Panel = Color(0xFF0D0D0D)
+    val Panel2 = Color(0xFF191919)
+    val Border = Color(0xFF2F2F2F)
+    val Orange = Color(0xFFF50000)   // deck A / primary accent (logo red)
+    val Blue = Color(0xFFFFFFFF)     // deck B accent (logo white)
+    val Green = Color(0xFFE9E9E9)
+    val Red = Color(0xFFC40000)
+    val Yellow = Color(0xFFFF5252)
+    val Text = Color(0xFFFFFFFF)
+    val Dim = Color(0xFF9A9A9A)
 }
 
 @Composable
@@ -212,24 +222,32 @@ fun FlatSlider(
 
 @Composable
 fun Vinyl(deck: Deck, accent: Color, clock: UiClock, modifier: Modifier = Modifier) {
+    val logo = ImageBitmap.imageResource(R.drawable.rb_logo)
     Canvas(modifier.aspectRatio(1f)) {
         clock.tick
         val r = size.minDimension / 2f
         val c = center
-        drawCircle(Color(0xFF0F1116), r)
+        val angle = ((deck.posFrames / SR * 200.0) % 360.0).toFloat()
+        drawCircle(Color(0xFF0A0A0A), r)
         drawCircle(accent, r - 2.dp.toPx(), style = Stroke(3.dp.toPx()))
-        drawCircle(Color(0xFF1E232C), r * 0.78f, style = Stroke(1.dp.toPx()))
-        drawCircle(Color(0xFF1E232C), r * 0.62f, style = Stroke(1.dp.toPx()))
-        drawCircle(accent, r * 0.40f)
-        drawCircle(C.Bg, r * 0.07f)
-        val ang = Math.toRadians((deck.posFrames / SR * 200.0) % 360.0 - 90.0)
-        drawLine(
-            Color.White,
-            c,
-            Offset(c.x + cos(ang).toFloat() * r * 0.72f, c.y + sin(ang).toFloat() * r * 0.72f),
-            strokeWidth = 4.dp.toPx(),
-            cap = StrokeCap.Round,
-        )
+        drawCircle(Color(0xFF222222), r * 0.86f, style = Stroke(1.dp.toPx()))
+        drawCircle(Color(0xFF222222), r * 0.72f, style = Stroke(1.dp.toPx()))
+        val lr = r * 0.60f
+        rotate(angle, c) {
+            drawCircle(Color.Black, lr)
+            drawCircle(accent, lr, style = Stroke(2.dp.toPx()))
+            val lw = lr * 2f * 0.86f
+            val lh = lw * logo.height / logo.width
+            drawImage(
+                logo,
+                srcOffset = IntOffset.Zero,
+                srcSize = IntSize(logo.width, logo.height),
+                dstOffset = IntOffset((c.x - lw / 2f).toInt(), (c.y - lh / 2f).toInt()),
+                dstSize = IntSize(lw.toInt(), lh.toInt()),
+                filterQuality = FilterQuality.Medium,
+            )
+            drawLine(accent, Offset(c.x, c.y - r * 0.93f), Offset(c.x, c.y - r * 0.76f), strokeWidth = 4.dp.toPx(), cap = StrokeCap.Round)
+        }
     }
 }
 
@@ -344,12 +362,10 @@ fun VuMeter(engine: MixEngine, clock: UiClock, modifier: Modifier = Modifier) {
 
 @Composable
 fun LogoMark(modifier: Modifier = Modifier) {
-    Canvas(modifier.aspectRatio(1f)) {
-        val r = size.minDimension / 2f
-        drawCircle(Color(0xFF12151C), r)
-        drawCircle(C.Orange, r - 1.dp.toPx(), style = Stroke(2.dp.toPx()))
-        drawCircle(C.Blue, r * 0.72f, style = Stroke(2.dp.toPx()))
-        drawCircle(C.Orange, r * 0.30f)
-        drawCircle(C.Bg, r * 0.06f)
-    }
+    Image(
+        painter = painterResource(R.drawable.rb_logo),
+        contentDescription = null,
+        modifier = modifier,
+        contentScale = ContentScale.Fit,
+    )
 }

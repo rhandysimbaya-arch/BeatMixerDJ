@@ -140,6 +140,7 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
             engine.recorder = null
             Thread { r.stop() }.start()
         }
+        for (dk in engine.decks) dk.track?.cancelled = true
         engine.release()
         super.onCleared()
     }
@@ -450,9 +451,11 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
         d.playing = false
         deckUi[deck] = deckUi[deck].copy(loading = true, title = song.title, artist = "Loading...")
         viewModelScope.launch {
-            val t = withContext(Dispatchers.Default) {
+            val t = withContext(Dispatchers.IO) {
                 try {
-                    Decoder.buildTrack(ctx, song)
+                    Decoder.startTrack(ctx, song) { tr ->
+                        if (tr.bpm <= 0f) messages.tryEmit("BPM not detected for ${tr.title}")
+                    }
                 } catch (e: Throwable) {
                     null
                 }
@@ -462,6 +465,7 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
                 toast("Could not load ${song.title}")
                 return@launch
             }
+            d.track?.cancelled = true
             d.track = null
             d.posFrames = 0.0
             d.cuePoint = 0.0
@@ -475,7 +479,6 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
             for (i in 0..3) hotCues[deck][i] = null
             refreshDeckUi(deck)
             if (thenPlay) d.playing = true
-            if (t.bpm <= 0f) toast("BPM not detected - SYNC may be unavailable")
         }
     }
 

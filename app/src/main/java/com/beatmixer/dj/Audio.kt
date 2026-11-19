@@ -23,17 +23,25 @@ import kotlin.random.Random
 /** Internal sample rate of the whole mixer. */
 const val SR = 44100
 
-/** A fully decoded track: interleaved stereo 16-bit PCM at [SR]. */
+/**
+ * A track decoded into interleaved stereo 16-bit PCM at [SR]. Decoding continues on a background
+ * thread, so playback can start after the first few seconds are ready ([readyFrames]).
+ */
 class Track(
     val uri: Uri,
     val title: String,
     val artist: String,
     val pcm: ShortArray,
-    val bpm: Float,
     val peaks: FloatArray,
-    val beatOffset: Float = 0f,
+    estFrames: Int,
 ) {
-    val frames: Int get() = pcm.size / 2
+    @Volatile var frames: Int = estFrames
+    @Volatile var readyFrames: Int = 0
+    @Volatile var complete: Boolean = false
+    @Volatile var failed: Boolean = false
+    @Volatile var cancelled: Boolean = false
+    @Volatile var bpm: Float = 0f
+    @Volatile var beatOffset: Float = 0f
 }
 
 private class PcmBuilder(initialCapacity: Int) {
@@ -196,15 +204,150 @@ object Decoder {
         }
     }
 
-    fun buildTrack(ctx: Context, song: Song): Track? {
-        val pcm = decodeStereo(ctx, song.uri, MAX_SECONDS) ?: return null
-        val r = BpmDetector.detect(pcm)
-        return Track(song.uri, song.title, song.artist, pcm, r.bpm, computePeaks(pcm, 900), r.offsetSec)
+    /**
+     * Starts decoding [song] on a background thread and returns as soon as the first seconds are
+     * playable. Peaks and BPM are filled in later; [onAnalyzed] is called when they are ready.
+     */
+    fun startTrack(ctx: Context, song: Song, onAnalyzed: (Track) -> Unit): Track? {
+        val ex = MediaExtractor()
+        try {
+            ex.setDataSource(ctx, song.uri, null)
+            var idx = -1
+            var fmt: MediaFormat? = null
+            for (i in 0 until ex.trackCount) {
+                val f = ex.getTrackFormat(i)
+                val m = f.getString(MediaFormat.KEY_MIME)
+                if (m != null && m.startsWith("audio/")) {
+                    idx = i
+                    fmt = f
+                    break
+                }
+            }
+            if (idx < 0 || fmt == null) {
+                ex.release()
+                return null
+            }
+            val mime = fmt.getString(MediaFormat.KEY_MIME) ?: run {
+                ex.release()
+                return null
+            }
+            ex.selectTrack(idx)
+            val durSec = if (fmt.containsKey(MediaFormat.KEY_DURATION)) fmt.getLong(MediaFormat.KEY_DURATION) / 1_000_000.0 else 300.0
+            val secs = min(durSec, MAX_SECONDS.toDouble())
+            val cap = min((secs * SR * 1.03).toInt() + SR * 2, (MAX_SECONDS + 5) * SR)
+            val track = Track(song.uri, song.title, song.artist, ShortArray(cap * 2), FloatArray(900), min((secs * SR).toInt(), cap))
+            val f2: MediaFormat = fmt
+            Thread({ decodeLoop(ex, f2, mime, track, cap, onAnalyzed) }, "track-decoder").start()
+
+            val need = min(SR * 3, track.frames)
+            val t0 = System.currentTimeMillis()
+            while (!track.complete && !track.failed && track.readyFrames < need && System.currentTimeMillis() - t0 < 20000) {
+                Thread.sleep(4)
+            }
+            if (track.failed || track.readyFrames < min(need, SR / 2)) {
+                track.cancelled = true
+                return null
+            }
+            return track
+        } catch (e: Exception) {
+            try {
+                ex.release()
+            } catch (_: Exception) {
+            }
+            return null
+        }
     }
 
-    fun computePeaks(pcm: ShortArray, n: Int): FloatArray {
-        val frames = pcm.size / 2
-        val out = FloatArray(n)
+    private fun decodeLoop(ex: MediaExtractor, fmt: MediaFormat, mime: String, track: Track, cap: Int, onAnalyzed: (Track) -> Unit) {
+        android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_FOREGROUND)
+        var codec: MediaCodec? = null
+        try {
+            var srcRate = if (fmt.containsKey(MediaFormat.KEY_SAMPLE_RATE)) fmt.getInteger(MediaFormat.KEY_SAMPLE_RATE) else SR
+            var channels = if (fmt.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) fmt.getInteger(MediaFormat.KEY_CHANNEL_COUNT) else 2
+            val c = MediaCodec.createDecoderByType(mime)
+            codec = c
+            c.configure(fmt, null, null, 0)
+            c.start()
+            val w = StreamWriter(track.pcm, cap, srcRate)
+            val info = MediaCodec.BufferInfo()
+            var inDone = false
+            var outDone = false
+            var stall = 0
+            while (!outDone && !track.cancelled) {
+                while (!inDone) {
+                    val ib = c.dequeueInputBuffer(0)
+                    if (ib < 0) break
+                    val buf = c.getInputBuffer(ib)
+                    val n = if (buf != null) ex.readSampleData(buf, 0) else -1
+                    if (n < 0) {
+                        c.queueInputBuffer(ib, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                        inDone = true
+                    } else {
+                        c.queueInputBuffer(ib, 0, n, ex.sampleTime, 0)
+                        ex.advance()
+                    }
+                }
+                val ob = c.dequeueOutputBuffer(info, 4000)
+                if (ob >= 0) {
+                    stall = 0
+                    val out = c.getOutputBuffer(ob)
+                    if (out != null && info.size > 0) {
+                        out.position(info.offset)
+                        out.limit(info.offset + info.size)
+                        w.push(out.order(ByteOrder.nativeOrder()).asShortBuffer(), channels)
+                        track.readyFrames = w.frames
+                    }
+                    c.releaseOutputBuffer(ob, false)
+                    if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) outDone = true
+                    if (w.full) outDone = true
+                } else if (ob == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    val nf = c.outputFormat
+                    srcRate = nf.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+                    channels = nf.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+                    w.setRate(srcRate)
+                } else if (inDone) {
+                    stall++
+                    if (stall > 500) outDone = true
+                }
+            }
+            if (track.cancelled) return
+            track.frames = w.frames
+            track.readyFrames = w.frames
+            track.complete = true
+            if (w.frames < SR / 2) {
+                track.failed = true
+                return
+            }
+            computePeaks(track.pcm, w.frames, track.peaks)
+            val r = BpmDetector.detect(track.pcm, w.frames)
+            track.bpm = r.bpm
+            track.beatOffset = r.offsetSec
+            onAnalyzed(track)
+        } catch (e: Throwable) {
+            if (track.readyFrames > SR) {
+                track.frames = track.readyFrames
+                track.complete = true
+            } else {
+                track.failed = true
+            }
+        } finally {
+            try {
+                codec?.stop()
+            } catch (_: Exception) {
+            }
+            try {
+                codec?.release()
+            } catch (_: Exception) {
+            }
+            try {
+                ex.release()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    fun computePeaks(pcm: ShortArray, frames: Int, out: FloatArray) {
+        val n = out.size
         val per = max(1, frames / n)
         for (b in 0 until n) {
             var m = 0
@@ -222,7 +365,71 @@ object Decoder {
         var mx = 0f
         for (v in out) if (v > mx) mx = v
         if (mx > 0f) for (i in out.indices) out[i] = out[i] / mx
-        return out
+    }
+}
+
+/** Writes decoded samples straight into the final 44.1 kHz stereo array, resampling if needed. */
+private class StreamWriter(val dst: ShortArray, val capFrames: Int, srcRate: Int) {
+    var frames = 0
+    val full: Boolean get() = frames >= capFrames
+    private var ratio = srcRate.toDouble() / SR
+    private var same = srcRate == SR
+    private var haveFirst = false
+    private var prevL = 0
+    private var prevR = 0
+    private var gi = 0L
+    private var sp = 0.0
+
+    fun setRate(r: Int) {
+        ratio = r.toDouble() / SR
+        same = r == SR
+    }
+
+    private fun emit(l: Float, r: Float) {
+        if (frames >= capFrames) return
+        dst[frames * 2] = l.toInt().toShort()
+        dst[frames * 2 + 1] = r.toInt().toShort()
+        frames++
+    }
+
+    fun push(sb: ShortBuffer, ch: Int) {
+        val c = max(1, ch)
+        val n = sb.remaining() / c
+        val start = sb.position()
+        if (same) {
+            val k = min(n, capFrames - frames)
+            var o = frames * 2
+            for (i in 0 until k) {
+                val idx = start + i * c
+                val l = sb.get(idx)
+                dst[o] = l
+                dst[o + 1] = if (c > 1) sb.get(idx + 1) else l
+                o += 2
+            }
+            frames += k
+        } else {
+            for (i in 0 until n) {
+                val idx = start + i * c
+                val l = sb.get(idx).toInt()
+                val r = if (c > 1) sb.get(idx + 1).toInt() else l
+                if (!haveFirst) {
+                    prevL = l
+                    prevR = r
+                    haveFirst = true
+                    gi = 0
+                    continue
+                }
+                gi++
+                while (sp < gi) {
+                    val fr = (sp - (gi - 1)).toFloat()
+                    emit(prevL + (l - prevL) * fr, prevR + (r - prevR) * fr)
+                    sp += ratio
+                }
+                prevL = l
+                prevR = r
+                if (frames >= capFrames) return
+            }
+        }
     }
 }
 
@@ -230,8 +437,7 @@ object Decoder {
 class BpmResult(val bpm: Float, val offsetSec: Float)
 
 object BpmDetector {
-    fun detect(pcm: ShortArray): BpmResult {
-        val frames = pcm.size / 2
+    fun detect(pcm: ShortArray, frames: Int): BpmResult {
         val hop = 256
         val len = min(frames, SR * 60)
         val start = if (frames > SR * 90) (frames - len) / 2 else 0

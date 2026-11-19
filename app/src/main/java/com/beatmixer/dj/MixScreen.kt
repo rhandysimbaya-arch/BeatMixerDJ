@@ -110,7 +110,7 @@ private fun OutputChip(kind: String, modifier: Modifier = Modifier) {
     ) {
         Text(
             text,
-            color = if (bt) Color(0xFF1A1405) else C.Dim,
+            color = if (bt) Color(0xFF000000) else C.Dim,
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
             lineHeight = 14.sp,
@@ -205,7 +205,7 @@ fun TopBar(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                LogoMark(Modifier.size(36.dp))
+                LogoMark(Modifier.size(width = 66.dp, height = 36.dp))
                 NowPlayingBox(vm, Modifier.weight(1f))
                 StopAllButton(vm, Modifier.height(38.dp).width(116.dp))
             }
@@ -348,7 +348,7 @@ fun DeckPanel(
                 Icon(
                     if (ui.playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                     null,
-                    tint = if (ui.playing) Color(0xFF06210F) else C.Green,
+                    tint = if (ui.playing) Color(0xFF000000) else C.Green,
                     modifier = Modifier.size(26.dp),
                 )
             }
@@ -395,14 +395,14 @@ private fun ControlRows(vm: MixerViewModel, onSettings: () -> Unit, micGate: Mic
                 Modifier.weight(1f).fillMaxHeight(),
                 accent = C.Orange,
                 active = vm.echo[0],
-                activeFill = Color(0xFF5A3A12),
+                activeFill = Color(0xFF3A0000),
                 onClick = { vm.toggleEcho(0) },
             ) { Label("ECHO A", color = C.Orange, size = 13.sp) }
             PadButton(
                 Modifier.weight(1f).fillMaxHeight(),
                 accent = C.Blue,
                 active = vm.echo[1],
-                activeFill = Color(0xFF12475A),
+                activeFill = Color(0xFF3A3A3A),
                 onClick = { vm.toggleEcho(1) },
             ) { Label("ECHO B", color = C.Blue, size = 13.sp) }
         }
@@ -411,7 +411,7 @@ private fun ControlRows(vm: MixerViewModel, onSettings: () -> Unit, micGate: Mic
                 Modifier.weight(1f).fillMaxHeight(),
                 accent = C.Green,
                 active = vm.micOn,
-                activeFill = Color(0xFF1B4D2B),
+                activeFill = Color(0xFF3A3A3A),
                 onClick = {
                     if (vm.micOn) vm.setMic(false) else if (micGate { vm.setMic(true) }) vm.setMic(true)
                 },
@@ -425,7 +425,7 @@ private fun ControlRows(vm: MixerViewModel, onSettings: () -> Unit, micGate: Mic
                 Modifier.weight(1.2f).fillMaxHeight(),
                 accent = C.Red,
                 active = vm.mcTalk,
-                activeFill = Color(0xFF5A1A1A),
+                activeFill = Color(0xFF4A0000),
                 onPress = { if (micGate(null)) vm.mcDown() },
                 onRelease = { vm.mcUp() },
             ) { Label("MC TALK", color = C.Red, size = 13.sp) }
@@ -448,7 +448,7 @@ private fun ControlRows(vm: MixerViewModel, onSettings: () -> Unit, micGate: Mic
                 Modifier.weight(1f).fillMaxHeight(),
                 accent = C.Red,
                 active = vm.recording,
-                activeFill = Color(0xFF5A1A1A),
+                activeFill = Color(0xFF4A0000),
                 onClick = { vm.toggleRec() },
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -505,7 +505,7 @@ fun CenterPanel(
 
 // ---------------------------------------------------------------- drops
 
-private val dropBg = listOf(Color(0xFF3A2418), Color(0xFF123022), Color(0xFF12303A))
+private val dropBg = listOf(Color(0xFF2A0505), Color(0xFF1E1E1E), Color(0xFF141414))
 private val dropAccent = listOf(C.Orange, C.Green, C.Blue)
 
 @Composable

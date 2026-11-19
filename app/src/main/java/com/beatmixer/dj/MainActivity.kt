@@ -1,6 +1,7 @@
 package com.beatmixer.dj
 
 import android.Manifest
+import android.app.Activity
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -39,7 +40,9 @@ import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Piano
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -107,7 +110,7 @@ private fun NavItem(screen: Screen, selected: Boolean, onClick: () -> Unit, modi
     Column(
         modifier
             .clip(RoundedCornerShape(12.dp))
-            .background(if (selected) Color(0xFF2A2412) else Color.Transparent)
+            .background(if (selected) Color(0xFF2A0A0A) else Color.Transparent)
             .clickable(onClick = onClick)
             .padding(vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -173,7 +176,10 @@ fun BeatApp(vm: MixerViewModel = viewModel()) {
     LaunchedEffect(vm.screen) {
         if (vm.screen == Screen.TOOLS) vm.refreshRecordings()
     }
-    BackHandler(enabled = vm.screen != Screen.MIX) { vm.screen = Screen.MIX }
+    var exitOpen by remember { mutableStateOf(false) }
+    BackHandler(enabled = true) {
+        if (vm.screen != Screen.MIX) vm.screen = Screen.MIX else exitOpen = true
+    }
 
     // ---- dialogs
     var eqOpen by remember { mutableStateOf(false) }
@@ -209,7 +215,7 @@ fun BeatApp(vm: MixerViewModel = viewModel()) {
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    LogoMark(Modifier.size(if (dense) 44.dp else 56.dp).padding(top = 4.dp))
+                    LogoMark(Modifier.width(64.dp).height(if (dense) 32.dp else 40.dp).padding(top = 4.dp))
                     Spacer(Modifier.height(4.dp))
                     for (s in Screen.entries) {
                         NavItem(
@@ -239,6 +245,16 @@ fun BeatApp(vm: MixerViewModel = viewModel()) {
             }
         }
 
+        if (exitOpen) {
+            AlertDialog(
+                onDismissRequest = { exitOpen = false },
+                containerColor = C.Panel,
+                title = { Text("Exit RB Pro Audio?", color = C.Text) },
+                text = { Text("Playback will stop.", color = C.Dim) },
+                confirmButton = { TextButton(onClick = { (ctx as? Activity)?.finish() }) { Text("EXIT") } },
+                dismissButton = { TextButton(onClick = { exitOpen = false }) { Text("STAY") } },
+            )
+        }
         if (eqOpen) EqDialog(vm) { eqOpen = false }
         if (nameOpen) NameDialog(vm) { nameOpen = false }
         if (settingsOpen) MixerSettingsDialog(vm) { settingsOpen = false }

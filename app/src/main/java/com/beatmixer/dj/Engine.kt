@@ -72,6 +72,7 @@ class Deck(val id: Int) {
             pos = req.coerceIn(0.0, max(0.0, total - 2.0))
             seekReq = Double.NaN
         }
+        val ready = t?.readyFrames ?: 0
         var play = playing && t != null && total > 4
         val step = rate
         val ls = loopStart
@@ -119,6 +120,8 @@ class Deck(val id: Int) {
                     play = false
                     playing = false
                     pos = max(0.0, total - 2.0)
+                } else if (ip + 3 >= ready) {
+                    // not decoded yet: hold position and stay silent
                 } else {
                     val fr = (pos - ip).toFloat()
                     val b = ip * 2
