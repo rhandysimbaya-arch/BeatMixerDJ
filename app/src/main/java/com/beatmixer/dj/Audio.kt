@@ -31,6 +31,7 @@ class Track(
     val pcm: ShortArray,
     val bpm: Float,
     val peaks: FloatArray,
+    val beatOffset: Float = 0f,
 ) {
     val frames: Int get() = pcm.size / 2
 }
@@ -197,8 +198,8 @@ object Decoder {
 
     fun buildTrack(ctx: Context, song: Song): Track? {
         val pcm = decodeStereo(ctx, song.uri, MAX_SECONDS) ?: return null
-        val bpm = BpmDetector.detect(pcm)
-        return Track(song.uri, song.title, song.artist, pcm, bpm, computePeaks(pcm, 900))
+        val r = BpmDetector.detect(pcm)
+        return Track(song.uri, song.title, song.artist, pcm, r.bpm, computePeaks(pcm, 900), r.offsetSec)
     }
 
     fun computePeaks(pcm: ShortArray, n: Int): FloatArray {
@@ -226,14 +227,16 @@ object Decoder {
 }
 
 /** Simple onset-autocorrelation tempo estimator (70-180 BPM). Returns 0 when unsure. */
+class BpmResult(val bpm: Float, val offsetSec: Float)
+
 object BpmDetector {
-    fun detect(pcm: ShortArray): Float {
+    fun detect(pcm: ShortArray): BpmResult {
         val frames = pcm.size / 2
         val hop = 256
         val len = min(frames, SR * 60)
         val start = if (frames > SR * 90) (frames - len) / 2 else 0
         val n = len / hop - 2
-        if (n < 600) return 0f
+        if (n < 600) return BpmResult(0f, 0f)
 
         val env = FloatArray(n)
         for (h in 0 until n) {
@@ -270,7 +273,34 @@ object BpmDetector {
             }
             bpm += 0.25f
         }
-        return (best * 10f).roundToInt() / 10f
+        val bpmOut = (best * 10f).roundToInt() / 10f
+
+        // Find where the beats fall (phase of the beat grid) with a comb filter.
+        val period = 60f * hopRate / best
+        var bestP = 0f
+        var bestS = -1e9f
+        var p = 0f
+        while (p < period) {
+            var s = 0f
+            var cnt = 0
+            var x = p
+            while (x < n - 2) {
+                val i0 = x.toInt()
+                val fr = x - i0
+                s += onset[i0] * (1f - fr) + onset[i0 + 1] * fr
+                cnt++
+                x += period
+            }
+            if (cnt > 0) s /= cnt
+            if (s > bestS) {
+                bestS = s
+                bestP = p
+            }
+            p += 0.5f
+        }
+        val t0 = (start + bestP * hop) / SR.toFloat()
+        val beatLen = 60f / bpmOut
+        return BpmResult(bpmOut, t0 % beatLen)
     }
 
     private fun autoc(x: FloatArray, lag: Float): Float {

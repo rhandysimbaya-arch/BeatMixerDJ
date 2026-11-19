@@ -807,25 +807,38 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         if (otherReady && (forceNext || remaining <= crossfadeSec + 0.5f)) {
-            val secs = if (forceNext) min(crossfadeSec, 5f) else crossfadeSec
+            val forced = forceNext
+            val secs = if (forced) min(crossfadeSec, 6f) else crossfadeSec
             forceNext = false
-            startTransition(live, min(secs, max(remaining - 0.3f, 1.5f)))
+            startTransition(live, min(secs, max(remaining - 0.3f, 1.5f)), forced)
         }
     }
 
-    private fun startTransition(from: Int, seconds: Float) {
+    private fun startTransition(from: Int, seconds: Float, forceSync: Boolean = false) {
         val to = 1 - from
         val dFrom = engine.decks[from]
         val dTo = engine.decks[to]
-        if (beatMatch) {
-            val fb = (dFrom.track?.bpm ?: 0f) * dFrom.rate.toFloat()
-            val tb = dTo.track?.bpm ?: 0f
-            if (fb > 0f && tb > 0f) {
+        dTo.seek(0.0)
+        if (beatMatch || forceSync) {
+            val lt = dFrom.track
+            val inT = dTo.track
+            val fb = (lt?.bpm ?: 0f) * dFrom.rate.toFloat()
+            val tb = inT?.bpm ?: 0f
+            if (lt != null && inT != null && fb > 0f && tb > 0f) {
                 val pct = tempoToMatch(tb, fb)
-                if (abs(pct) <= TEMPO_RANGE) setTempo(to, (pct * 10f).roundToInt() / 10f)
+                if (abs(pct) <= TEMPO_RANGE) {
+                    setTempo(to, (pct * 10f).roundToInt() / 10f)
+                    // line the incoming beat up with the live beat
+                    val liveBeatLen = 60.0 / lt.bpm
+                    val liveSec = dFrom.posFrames / SR
+                    val frac = (((liveSec - lt.beatOffset) / liveBeatLen) % 1.0 + 1.0) % 1.0
+                    val startSec = inT.beatOffset + frac * 60.0 / inT.bpm
+                    dTo.seek(startSec * SR)
+                } else {
+                    toast("BPMs too far apart to beat-match - fading without sync")
+                }
             }
         }
-        dTo.seek(0.0)
         dTo.playing = true
         transitionJob = viewModelScope.launch {
             val startCf = crossfader
