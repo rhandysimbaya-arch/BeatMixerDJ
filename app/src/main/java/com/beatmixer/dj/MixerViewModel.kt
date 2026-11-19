@@ -9,6 +9,7 @@ import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Environment
+import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import androidx.compose.runtime.getValue
@@ -87,6 +88,13 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
     var duckAmt by mutableFloatStateOf(0.3f)
         private set
 
+    var folderMode by mutableStateOf(false)
+        private set
+    var folderName by mutableStateOf("")
+        private set
+    var scanning by mutableStateOf(false)
+        private set
+
     val library = mutableStateListOf<Song>()
     val queue = mutableStateListOf<Song>()
     val recFiles = mutableStateListOf<File>()
@@ -95,6 +103,8 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
     val messages = MutableSharedFlow<String>(extraBufferCapacity = 8)
 
     // ---------- internals
+    private var folderUri: Uri? = null
+    private val folderSongs = ArrayList<Song>()
     private val mediaSongs = ArrayList<Song>()
     private val extras = ArrayList<Song>()
     private val preview = BooleanArray(2)
@@ -160,6 +170,13 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
         duckAmt = prefs.getFloat("duck", 0.3f)
         engine.duck = duckAmt
         beatMatch = prefs.getBoolean("beatmatch", true)
+        val fu = prefs.getString("folderUri", null)
+        if (fu != null) {
+            val u = Uri.parse(fu)
+            folderUri = u
+            folderName = folderLabel(u)
+            folderMode = prefs.getBoolean("folderMode", false)
+        }
         val s = prefs.getString("extras", null)
         if (s != null) {
             try {
@@ -288,19 +305,119 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
     // ---------- library
     fun refreshLibrary() {
         viewModelScope.launch {
-            val list = withContext(Dispatchers.IO) { queryMediaStore() }
-            mediaSongs.clear()
-            mediaSongs.addAll(list)
+            scanning = true
+            val fu = folderUri
+            if (folderMode && fu != null) {
+                val list = withContext(Dispatchers.IO) { scanFolder(fu) }
+                folderSongs.clear()
+                folderSongs.addAll(list)
+                if (list.isEmpty()) toast("No songs found in this folder (or access was lost)")
+            } else {
+                val list = withContext(Dispatchers.IO) { queryMediaStore() }
+                mediaSongs.clear()
+                mediaSongs.addAll(list)
+            }
             rebuildLibrary()
+            scanning = false
         }
     }
 
     private fun rebuildLibrary() {
-        val all = ArrayList<Song>(mediaSongs)
-        for (e in extras) if (all.none { it.uri == e.uri }) all.add(e)
+        val all = ArrayList<Song>()
+        if (folderMode) {
+            all.addAll(folderSongs)
+        } else {
+            all.addAll(mediaSongs)
+            for (e in extras) if (all.none { it.uri == e.uri }) all.add(e)
+        }
         all.sortBy { it.title.lowercase(Locale.getDefault()) }
         library.clear()
         library.addAll(all)
+    }
+
+    private fun folderLabel(tree: Uri): String = try {
+        DocumentsContract.getTreeDocumentId(tree).substringAfterLast('/').substringAfter(':').ifEmpty { "Storage" }
+    } catch (e: Exception) {
+        "Folder"
+    }
+
+    /** Use only the songs inside [tree] (including sub-folders) as the library. */
+    fun applyFolder(tree: Uri) {
+        try {
+            ctx.contentResolver.takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (_: Exception) {
+        }
+        folderUri = tree
+        folderName = folderLabel(tree)
+        folderMode = true
+        prefs.edit().putString("folderUri", tree.toString()).putBoolean("folderMode", true).apply()
+        refreshLibrary()
+    }
+
+    fun showFolder() {
+        if (folderUri == null) return
+        folderMode = true
+        prefs.edit().putBoolean("folderMode", true).apply()
+        refreshLibrary()
+    }
+
+    fun showAllMusic() {
+        folderMode = false
+        prefs.edit().putBoolean("folderMode", false).apply()
+        refreshLibrary()
+    }
+
+    private fun isAudioFile(name: String, mime: String): Boolean {
+        if (mime.startsWith("audio/")) return true
+        val ext = name.substringAfterLast('.', "").lowercase(Locale.US)
+        return ext in setOf("mp3", "m4a", "aac", "wav", "flac", "ogg", "opus", "amr", "mid")
+    }
+
+    private fun scanFolder(tree: Uri): List<Song> {
+        val out = ArrayList<Song>()
+        val rootId = try {
+            DocumentsContract.getTreeDocumentId(tree)
+        } catch (e: Exception) {
+            return out
+        }
+        fun walk(docId: String, depth: Int) {
+            val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, docId)
+            try {
+                ctx.contentResolver.query(
+                    children,
+                    arrayOf(
+                        DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                        DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                        DocumentsContract.Document.COLUMN_MIME_TYPE,
+                    ),
+                    null, null, null,
+                )?.use { c ->
+                    while (c.moveToNext()) {
+                        val id = c.getString(0) ?: continue
+                        val name = c.getString(1) ?: continue
+                        val mime = c.getString(2) ?: ""
+                        if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
+                            if (depth < 5) walk(id, depth + 1)
+                        } else if (isAudioFile(name, mime)) {
+                            val base = name.substringBeforeLast('.')
+                            val title: String
+                            val artist: String
+                            if (base.contains(" - ")) {
+                                artist = base.substringBefore(" - ").trim()
+                                title = base.substringAfter(" - ").trim()
+                            } else {
+                                artist = "Unknown artist"
+                                title = base
+                            }
+                            out.add(Song(DocumentsContract.buildDocumentUriUsingTree(tree, id), title, artist, 0L))
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+            }
+        }
+        walk(rootId, 0)
+        return out
     }
 
     private fun queryMediaStore(): List<Song> {
@@ -817,12 +934,12 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun startTransition(from: Int, seconds: Float, forceSync: Boolean = false) {
+    private fun startTransition(from: Int, seconds: Float, isSkip: Boolean = false) {
         val to = 1 - from
         val dFrom = engine.decks[from]
         val dTo = engine.decks[to]
         dTo.seek(0.0)
-        if (beatMatch || forceSync) {
+        if (beatMatch && !isSkip) {
             val lt = dFrom.track
             val inT = dTo.track
             val fb = (lt?.bpm ?: 0f) * dFrom.rate.toFloat()

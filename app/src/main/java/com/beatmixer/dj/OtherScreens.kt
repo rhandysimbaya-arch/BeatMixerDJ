@@ -183,6 +183,9 @@ fun MusicScreen(
     val add = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         vm.addFiles(uris)
     }
+    val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { u ->
+        if (u != null) vm.applyFolder(u)
+    }
     Column(modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             PadButton(Modifier.height(36.dp), accent = C.Orange, active = tab == 0, activeFill = Color(0xFF3A0000), onClick = { tab = 0 }) {
@@ -200,7 +203,45 @@ fun MusicScreen(
             }
         }
         if (tab == 0) {
-            if (!hasPermission) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                PadButton(
+                    Modifier.weight(1f).height(36.dp),
+                    accent = C.Orange,
+                    active = !vm.folderMode,
+                    activeFill = Color(0xFF3A0000),
+                    onClick = { vm.showAllMusic() },
+                ) { Label("ALL MUSIC", color = C.Orange, size = 12.sp) }
+                PadButton(
+                    Modifier.weight(1.4f).height(36.dp),
+                    accent = C.Blue,
+                    active = vm.folderMode,
+                    activeFill = Color(0xFF3A3A3A),
+                    onClick = { if (vm.folderName.isEmpty()) pickFolder.launch(null) else vm.showFolder() },
+                ) {
+                    Label(
+                        if (vm.folderName.isEmpty()) "FOLDER" else "FOLDER: " + vm.folderName,
+                        color = C.Blue,
+                        size = 12.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                    )
+                }
+                PadButton(Modifier.weight(1f).height(36.dp), accent = C.Dim, onClick = { pickFolder.launch(null) }) {
+                    Label(if (vm.folderName.isEmpty()) "CHOOSE" else "CHANGE", color = C.Dim, size = 12.sp)
+                }
+            }
+            if (vm.folderMode) {
+                Label(
+                    "Showing only songs in the \"${vm.folderName}\" folder (and its sub-folders).",
+                    color = C.Dim,
+                    size = 11.sp,
+                    weight = FontWeight.Normal,
+                    maxLines = 3,
+                )
+            }
+            if (vm.scanning) {
+                Label("Scanning...", color = C.Dim, size = 11.sp, weight = FontWeight.Normal)
+            }
+            if (!hasPermission && !vm.folderMode) {
                 Card {
                     Label("Allow access to your music to see your library here.", color = C.Text, size = 13.sp, weight = FontWeight.Normal, maxLines = 8)
                     PadButton(Modifier.height(38.dp), accent = C.Green, onClick = requestPermission) {
@@ -481,12 +522,13 @@ private fun RecordingRow(vm: MixerViewModel, f: File) {
 @Composable
 fun HelpScreen(modifier: Modifier = Modifier) {
     val items = listOf(
+        "Music folders" to "In MUSIC, tap CHOOSE to pick a folder. The library then shows only the songs inside that folder (and sub-folders), and AUTO-MIX picks from it too. Tap CHANGE to pick another folder, or ALL MUSIC to go back to everything on your phone.",
         "Loading music" to "Tap LOAD on a deck, or open MUSIC and tap A / B on any song. Use ADD FILES to pick songs from anywhere on your device.",
         "Transport" to "PLAY starts / pauses. CUE: while playing it returns to the cue point; while paused it sets the cue point here, and holding it previews the sound. Tap or drag the small waveform to jump around.",
         "Tempo and SYNC" to "The TEMPO slider changes speed (and pitch, like a record) by up to 30%. SYNC matches this deck's BPM to the other deck. BPM is detected automatically when a song loads.",
         "Mixer" to "The crossfader blends A and B. FILTER knobs sweep a low-pass (left) or high-pass (right) filter - double-tap a knob to reset. ECHO adds a beat-synced echo. EQ in the top bar has LOW / MID / HIGH for each deck.",
         "MIC and MC TALK" to "MIC switches the microphone on. Hold MC TALK to talk over the music: the music ducks while you hold it. Use headphones to avoid feedback.",
-        "AUTO-MIX" to "Plays your queue (then random library songs) and crossfades between decks automatically. The next-track button blends to the next song right now. Set the fade length and beat-matching in the mixer settings (sliders button).",
+        "AUTO-MIX" to "Plays your queue (then random library songs) and crossfades between decks automatically. The next-track button fades straight to the next song right now (no tempo or beat sync). Set the fade length and beat-matching in the mixer settings (sliders button).",
         "DROPS" to "The pads along the bottom fire sound effects instantly. Star the ones you use most. Open the DROPS screen to rename a drop or replace it with your own audio file (long-press).",
         "PLAY" to "Hot cues, beat loops and a small synth keyboard.",
         "REC" to "Records everything you hear (decks, drops and mic) to a WAV file. Find it under TOOLS.",
