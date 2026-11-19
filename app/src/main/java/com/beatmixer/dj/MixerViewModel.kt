@@ -74,6 +74,7 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
     var recSeconds by mutableFloatStateOf(0f)
         private set
     var nowPlaying by mutableStateOf("Nothing playing")
+    var nowDeck by mutableStateOf(-1)
         private set
     var outputKind by mutableStateOf("SPEAKER")
         private set
@@ -990,6 +991,7 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
             b.track != null -> 1
             else -> -1
         }
+        nowDeck = if (live >= 0 && engine.decks[live].track != null) live else -1
         nowPlaying = if (live < 0) {
             "Nothing playing"
         } else {

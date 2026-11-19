@@ -24,6 +24,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -268,6 +269,8 @@ fun OverviewWave(
     modifier: Modifier = Modifier,
 ) {
     val seek by rememberUpdatedState(onSeek)
+    val reveal = remember(track) { floatArrayOf(0f) }
+    val tmp = remember(track) { FloatArray(track?.peaks?.size ?: 1) }
     Canvas(
         modifier
             .clip(RoundedCornerShape(6.dp))
@@ -284,13 +287,54 @@ fun OverviewWave(
         if (track == null) return@Canvas
         val pk = track.peaks
         val n = pk.size
-        val frac = (deck.posFrames / max(1, track.frames)).toFloat().coerceIn(0f, 1f)
+        val total = max(1, track.frames)
+        val ready = if (track.complete) total else min(total, track.readyFrames)
+        val target = if (track.complete) 1f else (ready.toFloat() / total).coerceIn(0f, 1f)
+        // smooth reveal: glide toward the decoded fraction, never jump
+        val cur = reveal[0]
+        reveal[0] = min(target, cur + max((target - cur) * 0.10f, 0.006f))
+        val shown = reveal[0] * n
+        val per = max(1, total / n)
+        var mx = 0f
+        if (track.complete) {
+            for (i in 0 until n) tmp[i] = pk[i]
+            mx = 1f
+        } else {
+            for (i in 0 until n) {
+                val s = i * per
+                if (s >= ready) {
+                    tmp[i] = 0f
+                    continue
+                }
+                val e = min(ready, s + per)
+                val stride = max(1, (e - s) / 48)
+                var m = 0
+                var k = s
+                while (k < e) {
+                    val q = abs(track.pcm[k * 2].toInt())
+                    if (q > m) m = q
+                    k += stride
+                }
+                tmp[i] = m / 32768f
+                if (tmp[i] > mx) mx = tmp[i]
+            }
+            if (mx < 0.05f) mx = 0.05f
+        }
+        val frac = (deck.posFrames / total).toFloat().coerceIn(0f, 1f)
         val bw = size.width / n
         for (i in 0 until n) {
-            val h = max(2f, pk[i] * size.height * 0.95f)
+            val grow = ((shown - i) / 10f).coerceIn(0f, 1f)
+            if (grow <= 0f) break
+            val ease = grow * grow * (3f - 2f * grow)
+            val h = max(2f, (tmp[i] / mx).coerceIn(0f, 1f) * size.height * 0.95f * ease)
             val x = i * bw + bw / 2f
-            val col = if (i / n.toFloat() < frac) accent.copy(alpha = 0.35f) else accent.copy(alpha = 0.95f)
+            val played = i / n.toFloat() < frac
+            val col = (if (played) accent.copy(alpha = 0.35f) else accent.copy(alpha = 0.95f)).copy(alpha = (if (played) 0.35f else 0.95f) * (0.3f + 0.7f * ease))
             drawLine(col, Offset(x, (size.height - h) / 2f), Offset(x, (size.height + h) / 2f), strokeWidth = max(1f, bw))
+        }
+        if (reveal[0] < 0.999f) {
+            val ex = (shown * bw).coerceIn(0f, size.width)
+            drawLine(accent.copy(alpha = 0.9f), Offset(ex, 0f), Offset(ex, size.height), strokeWidth = 2.dp.toPx())
         }
         val px = frac * size.width
         drawLine(Color.White, Offset(px, 0f), Offset(px, size.height), strokeWidth = 2.dp.toPx())

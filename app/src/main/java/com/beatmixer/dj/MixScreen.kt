@@ -62,6 +62,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -78,7 +80,22 @@ fun fmtTime(sec: Float): String {
 @Composable
 private fun NowPlayingBox(vm: MixerViewModel, modifier: Modifier) {
     Column(modifier, verticalArrangement = Arrangement.Center) {
-        Label("NOW PLAYING", color = C.Orange, size = 11.sp)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Label("NOW PLAYING", color = C.Orange, size = 11.sp)
+            if (vm.nowDeck >= 0) {
+                val dc = if (vm.nowDeck == 0) C.Orange else C.Blue
+                Box(
+                    Modifier.clip(RoundedCornerShape(4.dp)).background(dc).padding(horizontal = 6.dp, vertical = 1.dp),
+                ) {
+                    Text(
+                        "DECK " + (if (vm.nowDeck == 0) "A" else "B"),
+                        color = Color.Black,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                }
+            }
+        }
         Text(
             vm.nowPlaying,
             color = C.Text,
@@ -95,9 +112,9 @@ private fun NowPlayingBox(vm: MixerViewModel, modifier: Modifier) {
 private fun OutputChip(kind: String, modifier: Modifier = Modifier) {
     val bt = kind == "BLUETOOTH"
     val text = when (kind) {
-        "BLUETOOTH" -> "BLUETOOTH — may delay. Cable is best"
-        "WIRED" -> "WIRED OUTPUT"
-        else -> "PHONE SPEAKER"
+        "BLUETOOTH" -> "BT (delay)"
+        "WIRED" -> "WIRED"
+        else -> "SPEAKER"
     }
     val shape = RoundedCornerShape(8.dp)
     Box(
@@ -105,16 +122,15 @@ private fun OutputChip(kind: String, modifier: Modifier = Modifier) {
             .clip(shape)
             .background(if (bt) C.Yellow else C.Panel2)
             .border(1.dp, if (bt) C.Yellow else C.Border, shape)
-            .padding(horizontal = 10.dp, vertical = 6.dp),
+            .padding(horizontal = 8.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text,
             color = if (bt) Color(0xFF000000) else C.Dim,
-            fontSize = 12.sp,
+            fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
-            lineHeight = 14.sp,
-            maxLines = 2,
+            maxLines = 1,
         )
     }
 }
@@ -188,7 +204,7 @@ fun TopBar(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             NowPlayingBox(vm, Modifier.weight(1f))
-            OutputChip(vm.outputKind, Modifier.widthIn(max = 210.dp))
+            OutputChip(vm.outputKind, Modifier.widthIn(max = 92.dp))
             DjChip(vm, onName, Modifier.height(40.dp))
             PadButton(Modifier.width(52.dp).height(40.dp), accent = C.Orange, onClick = onEq) {
                 Label("EQ", color = C.Orange, size = 15.sp)
@@ -614,7 +630,7 @@ fun EqDialog(vm: MixerViewModel, onDismiss: () -> Unit) {
         dismissButton = { TextButton(onClick = { vm.resetEq() }) { Text("RESET") } },
         title = { Text("Equalizer (tap + / - , tap the value to reset)", color = C.Text, fontSize = 16.sp) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 for (dk in 0..1) {
                     val accent = if (dk == 0) C.Orange else C.Blue
                     Label(if (dk == 0) "DECK A" else "DECK B", color = accent, size = 13.sp, modifier = Modifier.padding(top = 4.dp))
