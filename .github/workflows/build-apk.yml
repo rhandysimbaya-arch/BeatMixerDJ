@@ -11,8 +11,14 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-      - uses: android-actions/setup-android@v3
-      - run: chmod +x gradlew && ./gradlew assembleDebug --no-daemon
+      - name: Prepare Android SDK
+        run: |
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          SDKM=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -1)
+          yes | "$SDKM" --sdk_root="$ANDROID_HOME" --licenses > /dev/null || true
+          "$SDKM" --sdk_root="$ANDROID_HOME" "platforms;android-35" "build-tools;35.0.0" || true
+      - run: chmod +x gradlew && ./gradlew assembleDebug --no-daemon --stacktrace
       - uses: actions/upload-artifact@v4
         with:
           name: BeatMixerDJ-debug-apk
