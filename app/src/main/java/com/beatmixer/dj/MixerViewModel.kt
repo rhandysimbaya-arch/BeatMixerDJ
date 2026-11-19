@@ -1,0 +1,874 @@
+package com.beatmixer.dj
+
+import android.app.Application
+import android.content.ContentUris
+import android.content.Context
+import android.content.Intent
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
+import android.net.Uri
+import android.os.Environment
+import android.provider.MediaStore
+import android.provider.OpenableColumns
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.pow
+import kotlin.math.roundToInt
+
+class MixerViewModel(app: Application) : AndroidViewModel(app) {
+    private val ctx: Context = app.applicationContext
+    private val prefs = ctx.getSharedPreferences("beatmixer", Context.MODE_PRIVATE)
+
+    val engine = MixEngine()
+
+    // ---------- UI state
+    var screen by mutableStateOf(Screen.MIX)
+    val deckUi = mutableStateListOf(DeckUi(), DeckUi())
+    val tempo = mutableStateListOf(0f, 0f)
+    val filter = mutableStateListOf(0f, 0f)
+    val echo = mutableStateListOf(false, false)
+    val eq = mutableStateListOf(0f, 0f, 0f, 0f, 0f, 0f) // deck * 3 + band (low, mid, high), dB
+    val hotCues = listOf(
+        mutableStateListOf<Float?>(null, null, null, null),
+        mutableStateListOf<Float?>(null, null, null, null),
+    )
+    val loopOn = mutableStateListOf(false, false)
+
+    var crossfader by mutableFloatStateOf(0.5f)
+        private set
+    var master by mutableFloatStateOf(0.85f)
+        private set
+    var muted by mutableStateOf(false)
+        private set
+    var micOn by mutableStateOf(false)
+        private set
+    var mcTalk by mutableStateOf(false)
+        private set
+    var autoMix by mutableStateOf(false)
+        private set
+    var recording by mutableStateOf(false)
+        private set
+    var recSeconds by mutableFloatStateOf(0f)
+        private set
+    var nowPlaying by mutableStateOf("Nothing playing")
+        private set
+    var outputKind by mutableStateOf("SPEAKER")
+        private set
+    var djName by mutableStateOf("DJ DJ")
+        private set
+    var crossfadeSec by mutableFloatStateOf(12f)
+        private set
+    var beatMatch by mutableStateOf(true)
+        private set
+    var micGain by mutableFloatStateOf(1f)
+        private set
+    var duckAmt by mutableFloatStateOf(0.3f)
+        private set
+
+    val library = mutableStateListOf<Song>()
+    val queue = mutableStateListOf<Song>()
+    val recFiles = mutableStateListOf<File>()
+    val drops: List<DropItem> = DropSynth.all.mapIndexed { i, d -> DropItem(i, d.name) }
+
+    val messages = MutableSharedFlow<String>(extraBufferCapacity = 8)
+
+    // ---------- internals
+    private val mediaSongs = ArrayList<Song>()
+    private val extras = ArrayList<Song>()
+    private val preview = BooleanArray(2)
+    private val stale = BooleanArray(2)
+    private var transitionJob: Job? = null
+    private var forceNext = false
+    private var mcWasMicOn = false
+    private val noteCache = HashMap<Int, ShortArray>()
+
+    private val am = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    private val deviceCb = object : AudioDeviceCallback() {
+        override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) {
+            updateOutput()
+        }
+
+        override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) {
+            updateOutput()
+        }
+    }
+
+    init {
+        engine.start()
+        loadPrefs()
+        am.registerAudioDeviceCallback(deviceCb, null)
+        updateOutput()
+        refreshLibrary()
+        refreshRecordings()
+        initDrops()
+        viewModelScope.launch {
+            while (true) {
+                tick()
+                delay(100)
+            }
+        }
+    }
+
+    override fun onCleared() {
+        try {
+            am.unregisterAudioDeviceCallback(deviceCb)
+        } catch (_: Exception) {
+        }
+        engine.recorder?.let { r ->
+            engine.recorder = null
+            Thread { r.stop() }.start()
+        }
+        engine.release()
+        super.onCleared()
+    }
+
+    fun toast(s: String) {
+        messages.tryEmit(s)
+    }
+
+    // ---------- prefs
+    private fun loadPrefs() {
+        djName = prefs.getString("dj", "DJ DJ") ?: "DJ DJ"
+        master = prefs.getFloat("master", 0.85f)
+        engine.master = master
+        crossfadeSec = prefs.getFloat("xfade", 12f)
+        micGain = prefs.getFloat("micGain", 1f)
+        engine.micGain = micGain
+        duckAmt = prefs.getFloat("duck", 0.3f)
+        engine.duck = duckAmt
+        beatMatch = prefs.getBoolean("beatmatch", true)
+        val s = prefs.getString("extras", null)
+        if (s != null) {
+            try {
+                val arr = JSONArray(s)
+                for (i in 0 until arr.length()) {
+                    val o = arr.getJSONObject(i)
+                    extras.add(Song(Uri.parse(o.getString("u")), o.getString("t"), o.getString("a"), o.getLong("d")))
+                }
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun saveExtras() {
+        val arr = JSONArray()
+        for (s in extras) {
+            arr.put(
+                JSONObject()
+                    .put("u", s.uri.toString())
+                    .put("t", s.title)
+                    .put("a", s.artist)
+                    .put("d", s.durationMs),
+            )
+        }
+        prefs.edit().putString("extras", arr.toString()).apply()
+    }
+
+    fun setDjName(n: String) {
+        djName = n.trim().ifEmpty { "DJ DJ" }
+        prefs.edit().putString("dj", djName).apply()
+    }
+
+    // ---------- drops
+    private fun initDrops() {
+        viewModelScope.launch {
+            val defs = DropSynth.all
+            val samples = withContext(Dispatchers.Default) { defs.map { it.gen() } }
+            val favStr = prefs.getString("favs", null)
+            val favSet = favStr?.split(",")?.mapNotNull { it.toIntOrNull() }?.toSet()
+            drops.forEachIndexed { i, item ->
+                item.sample = samples[i]
+                if (favSet != null) item.fav = i in favSet
+                val nm = prefs.getString("dropName_$i", null)
+                if (nm != null) item.name = nm
+            }
+            for (i in drops.indices) {
+                val u = prefs.getString("dropUri_$i", null) ?: continue
+                val custom = withContext(Dispatchers.Default) { decodeDrop(Uri.parse(u)) }
+                if (custom != null) {
+                    drops[i].sample = custom
+                    drops[i].custom = true
+                }
+            }
+        }
+    }
+
+    private fun decodeDrop(uri: Uri): ShortArray? {
+        val st = Decoder.decodeStereo(ctx, uri, 8) ?: return null
+        val frames = st.size / 2
+        val mono = FloatArray(frames)
+        var peak = 1e-6f
+        for (i in 0 until frames) {
+            val v = (st[i * 2] + st[i * 2 + 1]) * 0.5f
+            mono[i] = v
+            if (abs(v) > peak) peak = abs(v)
+        }
+        val g = 0.85f * 32767f / peak
+        return ShortArray(frames) { (mono[it] * g).toInt().coerceIn(-32767, 32767).toShort() }
+    }
+
+    fun fireDrop(idx: Int) {
+        val s = drops.getOrNull(idx)?.sample ?: return
+        engine.triggerDrop(s, 1f)
+    }
+
+    fun toggleFav(idx: Int) {
+        val d = drops.getOrNull(idx) ?: return
+        d.fav = !d.fav
+        prefs.edit().putString("favs", drops.filter { it.fav }.joinToString(",") { it.index.toString() }).apply()
+    }
+
+    fun renameDrop(idx: Int, name: String) {
+        val d = drops.getOrNull(idx) ?: return
+        val n = name.trim().ifEmpty { d.defaultName }
+        d.name = n
+        prefs.edit().putString("dropName_$idx", n).apply()
+    }
+
+    fun setCustomDrop(idx: Int, uri: Uri) {
+        viewModelScope.launch {
+            try {
+                ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (_: Exception) {
+            }
+            val s = withContext(Dispatchers.Default) { decodeDrop(uri) }
+            if (s == null) {
+                toast("Could not read that audio file")
+            } else {
+                drops[idx].sample = s
+                drops[idx].custom = true
+                prefs.edit().putString("dropUri_$idx", uri.toString()).apply()
+                toast("Drop replaced (max 8 seconds used)")
+            }
+        }
+    }
+
+    fun resetDrop(idx: Int) {
+        val d = drops.getOrNull(idx) ?: return
+        viewModelScope.launch {
+            d.sample = withContext(Dispatchers.Default) { DropSynth.all[idx].gen() }
+            d.custom = false
+            d.name = d.defaultName
+            prefs.edit().remove("dropUri_$idx").remove("dropName_$idx").apply()
+        }
+    }
+
+    fun playNote(semitone: Int, octave: Int) {
+        val key = octave * 100 + semitone
+        val s = noteCache.getOrPut(key) {
+            val f = 130.81f * 2f.pow(octave.toFloat()) * 2f.pow(semitone / 12f)
+            DropSynth.note(f)
+        }
+        engine.triggerDrop(s, 0.9f)
+    }
+
+    // ---------- library
+    fun refreshLibrary() {
+        viewModelScope.launch {
+            val list = withContext(Dispatchers.IO) { queryMediaStore() }
+            mediaSongs.clear()
+            mediaSongs.addAll(list)
+            rebuildLibrary()
+        }
+    }
+
+    private fun rebuildLibrary() {
+        val all = ArrayList<Song>(mediaSongs)
+        for (e in extras) if (all.none { it.uri == e.uri }) all.add(e)
+        all.sortBy { it.title.lowercase(Locale.getDefault()) }
+        library.clear()
+        library.addAll(all)
+    }
+
+    private fun queryMediaStore(): List<Song> {
+        val out = ArrayList<Song>()
+        try {
+            val proj = arrayOf(
+                MediaStore.Audio.Media._ID,
+                MediaStore.Audio.Media.TITLE,
+                MediaStore.Audio.Media.ARTIST,
+                MediaStore.Audio.Media.DURATION,
+            )
+            val sel = "${MediaStore.Audio.Media.IS_MUSIC} != 0 AND ${MediaStore.Audio.Media.DURATION} > 30000"
+            ctx.contentResolver.query(
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, proj, sel, null,
+                "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC",
+            )?.use { c ->
+                val idI = c.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+                val tI = c.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+                val aI = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
+                val dI = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
+                while (c.moveToNext()) {
+                    val id = c.getLong(idI)
+                    val artist = c.getString(aI)
+                    out.add(
+                        Song(
+                            ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id),
+                            c.getString(tI) ?: "Unknown",
+                            if (artist == null || artist == "<unknown>") "Unknown artist" else artist,
+                            c.getLong(dI),
+                        ),
+                    )
+                }
+            }
+        } catch (_: Exception) {
+        }
+        return out
+    }
+
+    private fun displayName(u: Uri): String? = try {
+        ctx.contentResolver.query(u, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+            if (c.moveToFirst()) c.getString(0) else null
+        }
+    } catch (_: Exception) {
+        null
+    }
+
+    private fun songFromUri(u: Uri): Song {
+        try {
+            ctx.contentResolver.takePersistableUriPermission(u, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (_: Exception) {
+        }
+        val meta = Decoder.readMeta(ctx, u)
+        val t = meta.first
+        val name: String = if (!t.isNullOrBlank()) t else (displayName(u)?.substringBeforeLast('.') ?: "Track")
+        return Song(u, name, meta.second ?: "Unknown artist", 0L)
+    }
+
+    fun addFiles(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        viewModelScope.launch {
+            val added = withContext(Dispatchers.IO) { uris.map { songFromUri(it) } }
+            for (s in added) if (extras.none { it.uri == s.uri }) extras.add(s)
+            saveExtras()
+            rebuildLibrary()
+            toast("Added ${added.size} song(s)")
+        }
+    }
+
+    fun loadFromUri(deck: Int, uri: Uri) {
+        viewModelScope.launch {
+            val s = withContext(Dispatchers.IO) { songFromUri(uri) }
+            loadSong(deck, s)
+        }
+    }
+
+    fun enqueue(s: Song) {
+        queue.add(s)
+        toast("Added to queue")
+    }
+
+    // ---------- recordings
+    private fun recDir(): File {
+        val base = ctx.getExternalFilesDir(Environment.DIRECTORY_MUSIC) ?: ctx.filesDir
+        return File(base, "recordings").also { it.mkdirs() }
+    }
+
+    fun refreshRecordings() {
+        val files = recDir().listFiles { f -> f.name.endsWith(".wav") }?.sortedByDescending { it.lastModified() } ?: emptyList()
+        recFiles.clear()
+        recFiles.addAll(files)
+    }
+
+    fun deleteRecording(f: File) {
+        f.delete()
+        refreshRecordings()
+    }
+
+    fun loadRecording(deck: Int, f: File) {
+        loadSong(deck, Song(Uri.fromFile(f), f.nameWithoutExtension, "Recording", 0L))
+    }
+
+    fun toggleRec() {
+        if (recording) {
+            val r = engine.recorder
+            engine.recorder = null
+            recording = false
+            viewModelScope.launch {
+                withContext(Dispatchers.IO) { r?.stop() }
+                refreshRecordings()
+                toast("Recording saved in Tools")
+            }
+        } else {
+            val name = "mix_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date()) + ".wav"
+            val r = WavRecorder(File(recDir(), name))
+            r.start()
+            engine.recorder = r
+            recSeconds = 0f
+            recording = true
+        }
+    }
+
+    // ---------- output route
+    private fun updateOutput() {
+        val devs = am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+        outputKind = when {
+            devs.any {
+                it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+                    it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                    it.type == AudioDeviceInfo.TYPE_BLE_HEADSET
+            } -> "BLUETOOTH"
+            devs.any {
+                it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
+                    it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+                    it.type == AudioDeviceInfo.TYPE_USB_DEVICE ||
+                    it.type == AudioDeviceInfo.TYPE_USB_HEADSET ||
+                    it.type == AudioDeviceInfo.TYPE_LINE_ANALOG ||
+                    it.type == AudioDeviceInfo.TYPE_LINE_DIGITAL ||
+                    it.type == AudioDeviceInfo.TYPE_HDMI
+            } -> "WIRED"
+            else -> "SPEAKER"
+        }
+    }
+
+    // ---------- deck loading / transport
+    fun loadSong(deck: Int, song: Song, thenPlay: Boolean = false) {
+        if (deckUi[deck].loading) return
+        val d = engine.decks[deck]
+        d.playing = false
+        deckUi[deck] = deckUi[deck].copy(loading = true, title = song.title, artist = "Loading...")
+        viewModelScope.launch {
+            val t = withContext(Dispatchers.Default) {
+                try {
+                    Decoder.buildTrack(ctx, song)
+                } catch (e: Throwable) {
+                    null
+                }
+            }
+            if (t == null) {
+                deckUi[deck] = DeckUi(title = "No track", artist = "Could not load that file")
+                toast("Could not load ${song.title}")
+                return@launch
+            }
+            d.track = null
+            d.posFrames = 0.0
+            d.cuePoint = 0.0
+            d.loopStart = -1.0
+            d.loopEnd = -1.0
+            d.seekReq = Double.NaN
+            setTempo(deck, 0f)
+            d.track = t
+            stale[deck] = false
+            loopOn[deck] = false
+            for (i in 0..3) hotCues[deck][i] = null
+            refreshDeckUi(deck)
+            if (thenPlay) d.playing = true
+            if (t.bpm <= 0f) toast("BPM not detected - SYNC may be unavailable")
+        }
+    }
+
+    private fun refreshDeckUi(i: Int) {
+        val d = engine.decks[i]
+        val t = d.track
+        val old = deckUi[i]
+        if (old.loading && t == null) return
+        val new = if (t == null) {
+            DeckUi()
+        } else {
+            val rem = max(0f, ((t.frames - d.posFrames) / (SR * d.rate)).toFloat())
+            DeckUi(
+                title = t.title,
+                artist = t.artist,
+                bpm = (t.bpm * d.rate.toFloat() * 10f).roundToInt() / 10f,
+                remaining = rem.toInt().toFloat(),
+                playing = d.playing,
+                loaded = true,
+                loading = false,
+            )
+        }
+        if (new != old) deckUi[i] = new
+    }
+
+    fun togglePlay(i: Int) {
+        val d = engine.decks[i]
+        val t = d.track
+        if (t == null) {
+            toast("Load a song on deck ${'A' + i} first")
+            return
+        }
+        if (!d.playing && d.posFrames >= t.frames - 4) d.seek(d.cuePoint)
+        d.playing = !d.playing
+        refreshDeckUi(i)
+    }
+
+    fun cueDown(i: Int) {
+        val d = engine.decks[i]
+        if (d.track == null) return
+        if (d.playing) {
+            d.playing = false
+            d.seek(d.cuePoint)
+            preview[i] = false
+        } else {
+            if (abs(d.posFrames - d.cuePoint) > SR / 50) d.cuePoint = d.posFrames
+            d.playing = true
+            preview[i] = true
+        }
+        refreshDeckUi(i)
+    }
+
+    fun cueUp(i: Int) {
+        if (!preview[i]) return
+        preview[i] = false
+        val d = engine.decks[i]
+        d.playing = false
+        d.seek(d.cuePoint)
+        refreshDeckUi(i)
+    }
+
+    fun seekFraction(i: Int, f: Float) {
+        val d = engine.decks[i]
+        val t = d.track ?: return
+        d.seek(f.coerceIn(0f, 1f) * (t.frames - 2.0))
+    }
+
+    fun setTempo(i: Int, pct: Float) {
+        val v = pct.coerceIn(-TEMPO_RANGE, TEMPO_RANGE)
+        tempo[i] = v
+        engine.decks[i].tempoPct = v
+    }
+
+    private fun tempoToMatch(trackBpm: Float, targetBpm: Float): Float {
+        var best = Float.MAX_VALUE
+        var bestPct = 0f
+        for (m in floatArrayOf(0.5f, 1f, 2f)) {
+            val pct = (targetBpm * m / trackBpm - 1f) * 100f
+            if (abs(pct) < abs(best)) {
+                best = pct
+                bestPct = pct
+            }
+        }
+        return bestPct
+    }
+
+    fun sync(i: Int) {
+        val d = engine.decks[i]
+        val o = engine.decks[1 - i]
+        val tb = d.track?.bpm ?: 0f
+        val ob = o.track?.bpm ?: 0f
+        if (tb <= 0f || ob <= 0f) {
+            toast("SYNC needs both decks loaded with a detected BPM")
+            return
+        }
+        val pct = tempoToMatch(tb, ob * o.rate.toFloat())
+        if (abs(pct) > TEMPO_RANGE) toast("BPMs are far apart - tempo limited to +/-${TEMPO_RANGE.toInt()}%")
+        setTempo(i, (pct * 10f).roundToInt() / 10f)
+    }
+
+    fun setFilter(i: Int, v: Float) {
+        filter[i] = v
+        engine.decks[i].filter = v
+    }
+
+    fun toggleEcho(i: Int) {
+        echo[i] = !echo[i]
+        engine.decks[i].echoOn = echo[i]
+    }
+
+    fun setEq(deck: Int, band: Int, db: Float) {
+        val v = if (abs(db) < 0.4f) 0f else db
+        eq[deck * 3 + band] = v
+        val d = engine.decks[deck]
+        when (band) {
+            0 -> d.eqLow = v
+            1 -> d.eqMid = v
+            else -> d.eqHigh = v
+        }
+    }
+
+    fun resetEq() {
+        for (dk in 0..1) for (b in 0..2) setEq(dk, b, 0f)
+    }
+
+    // loops & hot cues
+    fun loopBeats(i: Int, beats: Float) {
+        val d = engine.decks[i]
+        val t = d.track ?: return
+        if (t.bpm <= 0f) {
+            toast("Loops need a detected BPM")
+            return
+        }
+        val len = beats * 60.0 / t.bpm * SR
+        d.loopStart = d.posFrames
+        d.loopEnd = d.posFrames + len
+        loopOn[i] = true
+    }
+
+    fun exitLoop(i: Int) {
+        val d = engine.decks[i]
+        d.loopEnd = -1.0
+        d.loopStart = -1.0
+        loopOn[i] = false
+    }
+
+    fun hotCue(i: Int, n: Int) {
+        val d = engine.decks[i]
+        if (d.track == null) return
+        val saved = hotCues[i][n]
+        if (saved == null) {
+            hotCues[i][n] = (d.posFrames / SR).toFloat()
+        } else {
+            d.seek(saved * SR.toDouble())
+        }
+    }
+
+    fun clearHotCue(i: Int, n: Int) {
+        hotCues[i][n] = null
+    }
+
+    // ---------- mixer
+    fun setCrossfader(v: Float) {
+        crossfader = v.coerceIn(0f, 1f)
+        engine.crossfader = crossfader
+    }
+
+    fun setMaster(v: Float) {
+        master = v.coerceIn(0f, 1f)
+        engine.master = master
+        prefs.edit().putFloat("master", master).apply()
+    }
+
+    fun toggleMute() {
+        muted = !muted
+        engine.muted = muted
+    }
+
+    fun hasMicPermission(): Boolean =
+        ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.RECORD_AUDIO) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    fun setMic(on: Boolean) {
+        if (on) {
+            if (engine.startMic()) {
+                engine.micOn = true
+                micOn = true
+            } else {
+                toast("Could not open the microphone")
+            }
+        } else {
+            engine.micOn = false
+            engine.stopMic()
+            micOn = false
+        }
+    }
+
+    fun toggleMic() = setMic(!micOn)
+
+    fun mcDown() {
+        mcWasMicOn = micOn
+        if (!micOn) setMic(true)
+        if (!micOn) return
+        engine.mcTalk = true
+        mcTalk = true
+    }
+
+    fun mcUp() {
+        if (!mcTalk) return
+        engine.mcTalk = false
+        mcTalk = false
+        if (!mcWasMicOn) setMic(false)
+    }
+
+    fun setMicGain(v: Float) {
+        micGain = v
+        engine.micGain = v
+        prefs.edit().putFloat("micGain", v).apply()
+    }
+
+    fun setDuck(v: Float) {
+        duckAmt = v
+        engine.duck = v
+        prefs.edit().putFloat("duck", v).apply()
+    }
+
+    fun setCrossfadeSec(v: Float) {
+        crossfadeSec = v
+        prefs.edit().putFloat("xfade", v).apply()
+    }
+
+    fun setBeatMatch(v: Boolean) {
+        beatMatch = v
+        prefs.edit().putBoolean("beatmatch", v).apply()
+    }
+
+    fun stopAll() {
+        transitionJob?.cancel()
+        forceNext = false
+        autoMix = false
+        for (i in 0..1) {
+            engine.decks[i].playing = false
+            exitLoop(i)
+        }
+        for (v in engine.voices) v.data = null
+        for (i in 0..1) refreshDeckUi(i)
+    }
+
+    // ---------- auto-mix
+    fun setAutoMix(on: Boolean) {
+        autoMix = on
+        if (on) {
+            val a = engine.decks[0]
+            val b = engine.decks[1]
+            if (!a.playing && !b.playing) {
+                when {
+                    a.track != null && !stale[0] -> {
+                        a.playing = true
+                        setCrossfader(0f)
+                    }
+                    b.track != null && !stale[1] -> {
+                        b.playing = true
+                        setCrossfader(1f)
+                    }
+                    else -> {
+                        val s = nextSong(emptySet())
+                        if (s == null) {
+                            toast("Add songs to your library or queue first")
+                            autoMix = false
+                        } else {
+                            setCrossfader(0f)
+                            loadSong(0, s, thenPlay = true)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fun skipNext() {
+        if (liveDeck() < 0) {
+            toast("Nothing is playing")
+            return
+        }
+        forceNext = true
+    }
+
+    private fun nextSong(exclude: Set<Uri>): Song? {
+        if (queue.isNotEmpty()) return queue.removeAt(0)
+        val pool = library.filter { it.uri !in exclude && (it.durationMs == 0L || it.durationMs > 30_000L) }
+        return if (pool.isEmpty()) null else pool.random()
+    }
+
+    private fun liveDeck(): Int {
+        val a = engine.decks[0]
+        val b = engine.decks[1]
+        return when {
+            a.playing && b.playing -> if (crossfader < 0.5f) 0 else 1
+            a.playing -> 0
+            b.playing -> 1
+            else -> -1
+        }
+    }
+
+    private fun autoMixTick() {
+        if (transitionJob?.isActive == true) return
+        if (!autoMix && !forceNext) return
+        val live = liveDeck()
+        if (live < 0) {
+            forceNext = false
+            return
+        }
+        val other = 1 - live
+        val d = engine.decks[live]
+        val t = d.track ?: return
+        val od = engine.decks[other]
+        val remaining = ((t.frames - d.posFrames) / (SR * d.rate)).toFloat()
+        val otherReady = od.track != null && !od.playing && !stale[other] && od.posFrames < SR * 2
+        val otherBusy = deckUi[other].loading
+
+        if (!otherReady && !otherBusy && (forceNext || remaining < crossfadeSec + 25f)) {
+            val s = nextSong(setOf(t.uri))
+            if (s != null) {
+                loadSong(other, s)
+            } else if (forceNext) {
+                forceNext = false
+                toast("No next song - add songs to the queue")
+            }
+            return
+        }
+        if (otherReady && (forceNext || remaining <= crossfadeSec + 0.5f)) {
+            val secs = if (forceNext) min(crossfadeSec, 5f) else crossfadeSec
+            forceNext = false
+            startTransition(live, min(secs, max(remaining - 0.3f, 1.5f)))
+        }
+    }
+
+    private fun startTransition(from: Int, seconds: Float) {
+        val to = 1 - from
+        val dFrom = engine.decks[from]
+        val dTo = engine.decks[to]
+        if (beatMatch) {
+            val fb = (dFrom.track?.bpm ?: 0f) * dFrom.rate.toFloat()
+            val tb = dTo.track?.bpm ?: 0f
+            if (fb > 0f && tb > 0f) {
+                val pct = tempoToMatch(tb, fb)
+                if (abs(pct) <= TEMPO_RANGE) setTempo(to, (pct * 10f).roundToInt() / 10f)
+            }
+        }
+        dTo.seek(0.0)
+        dTo.playing = true
+        transitionJob = viewModelScope.launch {
+            val startCf = crossfader
+            val endCf = if (to == 1) 1f else 0f
+            val t0 = System.nanoTime()
+            while (true) {
+                val p = ((System.nanoTime() - t0) / 1e9f / seconds).coerceIn(0f, 1f)
+                setCrossfader(startCf + (endCf - startCf) * p)
+                if (p >= 1f) break
+                delay(30)
+            }
+            dFrom.playing = false
+            dFrom.seek(0.0)
+            exitLoop(from)
+            setTempo(from, 0f)
+            stale[from] = true
+        }
+    }
+
+    // ---------- periodic tick (10 Hz)
+    private fun tick() {
+        for (i in 0..1) refreshDeckUi(i)
+        val a = engine.decks[0]
+        val b = engine.decks[1]
+        val live = when {
+            liveDeck() >= 0 -> liveDeck()
+            a.track != null -> 0
+            b.track != null -> 1
+            else -> -1
+        }
+        nowPlaying = if (live < 0) {
+            "Nothing playing"
+        } else {
+            val t = engine.decks[live].track
+            if (t == null) {
+                "Nothing playing"
+            } else if (t.artist.startsWith("Unknown") || t.artist.isBlank()) {
+                t.title
+            } else {
+                t.artist + " - " + t.title
+            }
+        }
+        if (recording) recSeconds = (engine.recorder?.bytes ?: 0L) / (SR * 4f)
+        autoMixTick()
+    }
+}
