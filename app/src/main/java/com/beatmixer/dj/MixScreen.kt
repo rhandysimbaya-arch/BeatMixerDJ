@@ -153,7 +153,7 @@ private fun MasterBox(vm: MixerViewModel, modifier: Modifier = Modifier) {
         }
         FlatSlider(
             value = vm.master,
-            onValueChange = { vm.setMaster(it) },
+            onValueChange = { vm.updateMaster(it) },
             modifier = Modifier.fillMaxWidth(),
             accent = C.Yellow,
         )
@@ -439,7 +439,7 @@ private fun ControlRows(vm: MixerViewModel, onSettings: () -> Unit, micGate: Mic
                 accent = C.Yellow,
                 active = vm.autoMix,
                 activeFill = C.Yellow,
-                onClick = { vm.setAutoMix(!vm.autoMix) },
+                onClick = { vm.updateAutoMix(!vm.autoMix) },
             ) { Label("AUTO-MIX", color = if (vm.autoMix) Color.Black else C.Yellow, size = 13.sp) }
             PadButton(Modifier.width(40.dp).fillMaxHeight(), accent = C.Dim, onClick = { vm.skipNext() }) {
                 Icon(Icons.Filled.SkipNext, null, tint = C.Text, modifier = Modifier.size(20.dp))
@@ -465,10 +465,10 @@ private fun ControlRows(vm: MixerViewModel, onSettings: () -> Unit, micGate: Mic
             Label("A", color = C.Orange, size = 15.sp)
             FlatSlider(
                 value = vm.crossfader,
-                onValueChange = { vm.setCrossfader(it) },
+                onValueChange = { vm.updateCrossfader(it) },
                 modifier = Modifier.weight(1f),
                 accent = C.Yellow,
-                onReset = { vm.setCrossfader(0.5f) },
+                onReset = { vm.updateCrossfader(0.5f) },
             )
             Label("B", color = C.Blue, size = 15.sp)
         }
@@ -656,7 +656,7 @@ fun NameDialog(vm: MixerViewModel, onDismiss: () -> Unit) {
         containerColor = C.Panel,
         confirmButton = {
             TextButton(onClick = {
-                vm.setDjName(text)
+                vm.updateDjName(text)
                 onDismiss()
             }) { Text("SAVE") }
         },

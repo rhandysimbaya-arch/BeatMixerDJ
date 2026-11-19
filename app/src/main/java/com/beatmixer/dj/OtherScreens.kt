@@ -82,7 +82,7 @@ fun SettingRow(title: String, valueText: String, content: @Composable () -> Unit
 fun MixerSettings(vm: MixerViewModel) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         SettingRow("Microphone volume", "${(vm.micGain * 100).roundToInt()}%") {
-            FlatSlider(vm.micGain, { vm.setMicGain(it) }, Modifier.fillMaxWidth(), range = 0f..2f, accent = C.Green)
+            FlatSlider(vm.micGain, { vm.updateMicGain(it) }, Modifier.fillMaxWidth(), range = 0f..2f, accent = C.Green)
         }
         SettingRow("Music level while MC TALK is held", "${(vm.duckAmt * 100).roundToInt()}%") {
             FlatSlider(vm.duckAmt, { vm.setDuck(it) }, Modifier.fillMaxWidth(), accent = C.Red)
@@ -90,7 +90,7 @@ fun MixerSettings(vm: MixerViewModel) {
         SettingRow("Auto-mix crossfade", "${vm.crossfadeSec.roundToInt()} s") {
             FlatSlider(
                 vm.crossfadeSec,
-                { vm.setCrossfadeSec(it.roundToInt().toFloat()) },
+                { vm.updateCrossfadeSec(it.roundToInt().toFloat()) },
                 Modifier.fillMaxWidth(),
                 range = 3f..30f,
                 accent = C.Yellow,
@@ -104,7 +104,7 @@ fun MixerSettings(vm: MixerViewModel) {
                 accent = C.Yellow,
                 active = vm.beatMatch,
                 activeFill = C.Yellow,
-                onClick = { vm.setBeatMatch(!vm.beatMatch) },
+                onClick = { vm.updateBeatMatch(!vm.beatMatch) },
             ) { Label(if (vm.beatMatch) "ON" else "OFF", color = if (vm.beatMatch) Color.Black else C.Yellow, size = 12.sp) }
         }
         Label("Use headphones with the mic to avoid feedback.", color = C.Dim, size = 11.sp, weight = FontWeight.Normal, maxLines = 8)

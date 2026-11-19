@@ -186,7 +186,7 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
         prefs.edit().putString("extras", arr.toString()).apply()
     }
 
-    fun setDjName(n: String) {
+    fun updateDjName(n: String) {
         djName = n.trim().ifEmpty { "DJ DJ" }
         prefs.edit().putString("dj", djName).apply()
     }
@@ -638,12 +638,12 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ---------- mixer
-    fun setCrossfader(v: Float) {
+    fun updateCrossfader(v: Float) {
         crossfader = v.coerceIn(0f, 1f)
         engine.crossfader = crossfader
     }
 
-    fun setMaster(v: Float) {
+    fun updateMaster(v: Float) {
         master = v.coerceIn(0f, 1f)
         engine.master = master
         prefs.edit().putFloat("master", master).apply()
@@ -690,7 +690,7 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
         if (!mcWasMicOn) setMic(false)
     }
 
-    fun setMicGain(v: Float) {
+    fun updateMicGain(v: Float) {
         micGain = v
         engine.micGain = v
         prefs.edit().putFloat("micGain", v).apply()
@@ -702,12 +702,12 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
         prefs.edit().putFloat("duck", v).apply()
     }
 
-    fun setCrossfadeSec(v: Float) {
+    fun updateCrossfadeSec(v: Float) {
         crossfadeSec = v
         prefs.edit().putFloat("xfade", v).apply()
     }
 
-    fun setBeatMatch(v: Boolean) {
+    fun updateBeatMatch(v: Boolean) {
         beatMatch = v
         prefs.edit().putBoolean("beatmatch", v).apply()
     }
@@ -725,7 +725,7 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ---------- auto-mix
-    fun setAutoMix(on: Boolean) {
+    fun updateAutoMix(on: Boolean) {
         autoMix = on
         if (on) {
             val a = engine.decks[0]
@@ -734,11 +734,11 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
                 when {
                     a.track != null && !stale[0] -> {
                         a.playing = true
-                        setCrossfader(0f)
+                        updateCrossfader(0f)
                     }
                     b.track != null && !stale[1] -> {
                         b.playing = true
-                        setCrossfader(1f)
+                        updateCrossfader(1f)
                     }
                     else -> {
                         val s = nextSong(emptySet())
@@ -746,7 +746,7 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
                             toast("Add songs to your library or queue first")
                             autoMix = false
                         } else {
-                            setCrossfader(0f)
+                            updateCrossfader(0f)
                             loadSong(0, s, thenPlay = true)
                         }
                     }
@@ -833,7 +833,7 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
             val t0 = System.nanoTime()
             while (true) {
                 val p = ((System.nanoTime() - t0) / 1e9f / seconds).coerceIn(0f, 1f)
-                setCrossfader(startCf + (endCf - startCf) * p)
+                updateCrossfader(startCf + (endCf - startCf) * p)
                 if (p >= 1f) break
                 delay(30)
             }
