@@ -301,7 +301,32 @@ fun MusicScreen(
 }
 
 @Composable
+private fun DeckTag(vm: MixerViewModel, i: Int, s: Song, modifier: Modifier) {
+    val accent = if (i == 0) C.Orange else C.Blue
+    val ui = vm.deckUi[i]
+    val deckPlaying = ui.playing
+    val hasSong = ui.loaded && ui.uri == s.uri.toString()
+    val p = if (deckPlaying) pulseValue() else 1f
+    PadButton(
+        modifier,
+        accent = accent.copy(alpha = if (deckPlaying) p else 1f),
+        active = hasSong,
+        activeFill = if (deckPlaying) accent else Color(0xFF3A3A3A),
+        onClick = { vm.loadSong(i, s) },
+    ) {
+        val letter = if (i == 0) "A" else "B"
+        Label(
+            if (hasSong && deckPlaying) "\u25B6" + letter else letter,
+            color = if (hasSong && deckPlaying) Color.Black else accent,
+            size = 14.sp,
+        )
+    }
+}
+
+@Composable
 private fun SongRow(vm: MixerViewModel, s: Song) {
+    val onA = vm.deckUi[0].loaded && vm.deckUi[0].uri == s.uri.toString()
+    val onB = vm.deckUi[1].loaded && vm.deckUi[1].uri == s.uri.toString()
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(C.Panel).padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -310,19 +335,24 @@ private fun SongRow(vm: MixerViewModel, s: Song) {
         Column(Modifier.weight(1f)) {
             Text(s.title, color = C.Text, fontSize = 14.sp, maxLines = 1)
             Text(
-                if (s.durationMs > 0) s.artist + "  •  " + fmtTime(s.durationMs / 1000f) else s.artist,
+                if (s.durationMs > 0) s.artist + "  \u2022  " + fmtTime(s.durationMs / 1000f) else s.artist,
                 color = C.Dim,
                 fontSize = 11.sp,
                 maxLines = 1,
             )
+            if (onA || onB) {
+                val d = if (onA && vm.deckUi[0].playing) 0 else if (onB && vm.deckUi[1].playing) 1 else if (onA) 0 else 1
+                val playingNow = vm.deckUi[d].playing
+                Label(
+                    (if (playingNow) "\u25B6 PLAYING ON " else "LOADED ON ") + (if (d == 0) "A" else "B"),
+                    color = if (d == 0) C.Orange else C.Blue,
+                    size = 10.sp,
+                )
+            }
         }
-        PadButton(Modifier.size(width = 38.dp, height = 34.dp), accent = C.Orange, onClick = { vm.loadSong(0, s) }) {
-            Label("A", color = C.Orange, size = 14.sp)
-        }
-        PadButton(Modifier.size(width = 38.dp, height = 34.dp), accent = C.Blue, onClick = { vm.loadSong(1, s) }) {
-            Label("B", color = C.Blue, size = 14.sp)
-        }
-        PadButton(Modifier.size(width = 44.dp, height = 34.dp), accent = C.Yellow, onClick = { vm.enqueue(s) }) {
+        DeckTag(vm, 0, s, Modifier.size(width = 50.dp, height = 36.dp))
+        DeckTag(vm, 1, s, Modifier.size(width = 50.dp, height = 36.dp))
+        PadButton(Modifier.size(width = 44.dp, height = 36.dp), accent = C.Yellow, onClick = { vm.enqueue(s) }) {
             Label("+Q", color = C.Yellow, size = 12.sp)
         }
     }

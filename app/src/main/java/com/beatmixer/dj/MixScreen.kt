@@ -276,12 +276,7 @@ fun DeckPanel(
         verticalArrangement = Arrangement.spacedBy(if (dense) 4.dp else 6.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(
-                Modifier.size(if (compact) 24.dp else 28.dp).clip(RoundedCornerShape(6.dp)).background(accent),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(if (idx == 0) "A" else "B", color = Color.Black, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
-            }
+            DeckBadge(if (idx == 0) "A" else "B", accent, ui.playing, if (compact) 26.dp else 30.dp)
             Column(Modifier.weight(1f)) {
                 Text(
                     ui.title,
@@ -617,29 +612,43 @@ fun EqDialog(vm: MixerViewModel, onDismiss: () -> Unit) {
         containerColor = C.Panel,
         confirmButton = { TextButton(onClick = onDismiss) { Text("DONE") } },
         dismissButton = { TextButton(onClick = { vm.resetEq() }) { Text("RESET") } },
-        title = { Text("Equalizer", color = C.Text) },
+        title = { Text("Equalizer (tap + / - , tap the value to reset)", color = C.Text, fontSize = 16.sp) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 for (dk in 0..1) {
                     val accent = if (dk == 0) C.Orange else C.Blue
-                    Label(if (dk == 0) "DECK A" else "DECK B", color = accent, size = 13.sp)
+                    Label(if (dk == 0) "DECK A" else "DECK B", color = accent, size = 13.sp, modifier = Modifier.padding(top = 4.dp))
                     for (b in 0..2) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Label(names[b], color = C.Dim, size = 11.sp, modifier = Modifier.width(40.dp))
-                            FlatSlider(
-                                value = vm.eq[dk * 3 + b],
-                                onValueChange = { vm.setEq(dk, b, it) },
-                                modifier = Modifier.weight(1f),
-                                range = -24f..6f,
+                        val cur = vm.eq[dk * 3 + b]
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.padding(vertical = 3.dp),
+                        ) {
+                            Label(names[b], color = C.Dim, size = 12.sp, modifier = Modifier.width(40.dp))
+                            PadButton(
+                                Modifier.size(44.dp),
                                 accent = accent,
-                                onReset = { vm.setEq(dk, b, 0f) },
-                            )
-                            Label(
-                                "%+.0f dB".format(vm.eq[dk * 3 + b]),
-                                color = C.Text,
-                                size = 11.sp,
-                                modifier = Modifier.width(52.dp),
-                            )
+                                onClick = { vm.setEq(dk, b, (cur - 3f).coerceAtLeast(-24f)) },
+                            ) { Label("\u2212", color = accent, size = 24.sp) }
+                            PadButton(
+                                Modifier.width(66.dp).height(44.dp),
+                                accent = C.Dim,
+                                active = cur != 0f,
+                                activeFill = Color(0xFF2A2A2A),
+                                onClick = { vm.setEq(dk, b, 0f) },
+                            ) {
+                                Label(
+                                    if (cur <= -24f) "KILL" else "%+.0f dB".format(cur),
+                                    color = C.Text,
+                                    size = 13.sp,
+                                )
+                            }
+                            PadButton(
+                                Modifier.size(44.dp),
+                                accent = accent,
+                                onClick = { vm.setEq(dk, b, (cur + 3f).coerceAtMost(6f)) },
+                            ) { Label("+", color = accent, size = 24.sp) }
                         }
                     }
                 }

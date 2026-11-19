@@ -616,6 +616,7 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
                 playing = d.playing,
                 loaded = true,
                 loading = false,
+                uri = t.uri.toString(),
             )
         }
         if (new != old) deckUi[i] = new

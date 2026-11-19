@@ -1,5 +1,10 @@
 package com.beatmixer.dj
 
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -11,6 +16,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -38,6 +44,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -368,4 +375,39 @@ fun LogoMark(modifier: Modifier = Modifier) {
         modifier = modifier,
         contentScale = ContentScale.Fit,
     )
+}
+
+/** A value that gently pulses between 0.35 and 1 while it is composed. */
+@Composable
+fun pulseValue(): Float {
+    val t = rememberInfiniteTransition(label = "pulse")
+    val v by t.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(650), RepeatMode.Reverse),
+        label = "p",
+    )
+    return v
+}
+
+/** Deck letter badge: glows and pulses while that deck is playing. */
+@Composable
+fun DeckBadge(letter: String, accent: Color, playing: Boolean, boxSize: Dp) {
+    val p = if (playing) pulseValue() else 1f
+    val shape = RoundedCornerShape(6.dp)
+    Box(
+        Modifier
+            .size(boxSize)
+            .clip(shape)
+            .background(if (playing) accent.copy(alpha = 0.4f + 0.6f * p) else Color.Transparent)
+            .border(1.5.dp, accent, shape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            letter,
+            color = if (playing) Color.Black else accent,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 15.sp,
+        )
+    }
 }

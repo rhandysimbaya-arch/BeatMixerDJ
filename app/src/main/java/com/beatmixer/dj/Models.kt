@@ -20,6 +20,7 @@ data class DeckUi(
     val playing: Boolean = false,
     val loaded: Boolean = false,
     val loading: Boolean = false,
+    val uri: String = "",
 )
 
 enum class Screen(val label: String) {
