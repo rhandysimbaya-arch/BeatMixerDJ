@@ -55,6 +55,13 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
     val loopSize = mutableStateListOf(4f, 4f)
     val playlists = mutableStateListOf<Playlist>()
     var playlistSel by mutableStateOf(-1)
+    var miniWide by mutableStateOf(false)
+    var miniPortrait by mutableStateOf(true)
+
+    fun updateMini(wide: Boolean, v: Boolean) {
+        if (wide) miniWide = v else miniPortrait = v
+        prefs.edit().putBoolean(if (wide) "miniWide" else "miniPortrait", v).apply()
+    }
     val eq = mutableStateListOf(0f, 0f, 0f, 0f, 0f, 0f) // deck * 3 + band (low, mid, high), dB
     val hotCues = listOf(
         mutableStateListOf<Float?>(null, null, null, null),
@@ -178,6 +185,8 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun loadPrefs() {
+        miniWide = prefs.getBoolean("miniWide", false)
+        miniPortrait = prefs.getBoolean("miniPortrait", true)
         loadPlaylists()
         updateTheme(prefs.getString("theme", "PIONEER") ?: "PIONEER")
         djName = prefs.getString("dj", "DJ DJ") ?: "DJ DJ"

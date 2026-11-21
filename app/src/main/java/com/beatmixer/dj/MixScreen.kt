@@ -454,6 +454,133 @@ private fun TempoV(vm: MixerViewModel, idx: Int, accent: Color, modifier: Modifi
     }
 }
 
+@Composable
+fun DeckMini(vm: MixerViewModel, clock: UiClock, idx: Int, onLoad: () -> Unit, modifier: Modifier = Modifier) {
+    val accent = if (idx == 0) C.Orange else C.Blue
+    val ui = vm.deckUi[idx]
+    val d = vm.engine.decks[idx]
+    val shape = RoundedCornerShape(12.dp)
+    Column(
+        modifier.clip(shape).background(C.Panel).border(1.dp, C.Border, shape).padding(6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            DeckBadge(if (idx == 0) "A" else "B", accent, ui.playing, 24.dp)
+            Text(
+                ui.title,
+                color = C.Text,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                softWrap = false,
+                modifier = Modifier.weight(1f).basicMarquee(),
+            )
+            Text(
+                (if (ui.bpm > 0f) "%.0f".format(ui.bpm) else "---") + "  -" + fmtTime(ui.remaining),
+                color = C.Dim,
+                fontSize = 11.sp,
+                maxLines = 1,
+            )
+            PadButton(Modifier.height(26.dp).widthIn(min = 48.dp), accent = accent, onClick = onLoad) {
+                Label(if (ui.loading) "..." else "LOAD", color = accent, size = 11.sp, modifier = Modifier.padding(horizontal = 6.dp))
+            }
+        }
+        OverviewWave(
+            deck = d,
+            track = d.track,
+            accent = accent,
+            clock = clock,
+            onSeek = { vm.seekFraction(idx, it) },
+            modifier = Modifier.fillMaxWidth().height(20.dp),
+        )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            PadButton(
+                Modifier.weight(1f).height(32.dp),
+                accent = accent,
+                onPress = { vm.cueDown(idx) },
+                onRelease = { vm.cueUp(idx) },
+            ) { Label("CUE", color = accent, size = 13.sp) }
+            PadButton(
+                Modifier.weight(1.3f).height(32.dp),
+                accent = C.Green,
+                active = ui.playing,
+                activeFill = C.Green,
+                onClick = { vm.togglePlay(idx) },
+            ) {
+                Icon(
+                    if (ui.playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                    null,
+                    tint = if (ui.playing) Color(0xFF000000) else C.Green,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+            PadButton(Modifier.weight(0.9f).height(32.dp), accent = C.Red, onClick = { vm.brake(idx) }) {
+                Box(Modifier.size(12.dp).background(C.Red))
+            }
+            PadButton(Modifier.weight(1f).height(32.dp), accent = accent, onClick = { vm.sync(idx) }) {
+                Label("SYNC", color = accent, size = 13.sp)
+            }
+        }
+    }
+}
+
+@Composable
+fun MiniCenter(vm: MixerViewModel, wide: Boolean, modifier: Modifier = Modifier) {
+    val shape = RoundedCornerShape(12.dp)
+    Column(
+        modifier.clip(shape).background(C.Panel).border(1.dp, C.Border, shape).padding(6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        @Composable
+        fun DropsBtn(m: Modifier) {
+            PadButton(m, accent = C.Green, onClick = { vm.screen = Screen.DROPS }) {
+                Label("DROPS \u203A", color = C.Green, size = 12.sp)
+            }
+        }
+
+        @Composable
+        fun AutoBtns(m: Modifier) {
+            Row(m, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                PadButton(
+                    Modifier.weight(1f).fillMaxHeight(),
+                    accent = C.Yellow,
+                    active = vm.autoMix,
+                    activeFill = C.Yellow,
+                    onClick = { vm.updateAutoMix(!vm.autoMix) },
+                ) { Label("AUTO-MIX", color = if (vm.autoMix) Color.Black else C.Yellow, size = 12.sp) }
+                PadButton(Modifier.width(40.dp).fillMaxHeight(), accent = C.Dim, onClick = { vm.skipNext() }) {
+                    Icon(Icons.Filled.SkipNext, null, tint = C.Text, modifier = Modifier.size(18.dp))
+                }
+            }
+        }
+
+        if (wide) {
+            DropsBtn(Modifier.fillMaxWidth().weight(1f))
+            AutoBtns(Modifier.fillMaxWidth().weight(1f))
+        } else {
+            Row(Modifier.fillMaxWidth().height(34.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                DropsBtn(Modifier.width(92.dp).fillMaxHeight())
+                AutoBtns(Modifier.weight(1f).fillMaxHeight())
+            }
+        }
+        Row(
+            Modifier.fillMaxWidth().height(26.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Label("A", color = C.Orange, size = 14.sp)
+            FlatSlider(
+                value = vm.crossfader,
+                onValueChange = { vm.updateCrossfader(it) },
+                modifier = Modifier.weight(1f),
+                accent = C.Yellow,
+                onReset = { vm.updateCrossfader(0.5f) },
+            )
+            Label("B", color = C.Blue, size = 14.sp)
+        }
+    }
+}
+
 private val hcColors = listOf(Color(0xFFFF5252), Color(0xFFFFC107), Color(0xFF4CAF50), Color(0xFF42A5F5))
 
 @Composable
@@ -645,6 +772,8 @@ fun MixContent(
     modifier: Modifier = Modifier,
 ) {
     val drag = remember { DragCtl() }
+    val mini = if (wide) vm.miniWide else vm.miniPortrait
+    val toggle = { vm.updateMini(wide, !mini) }
     val hot = if (drag.song != null) drag.deckAt(drag.pos) else -1
     fun deckMod(i: Int, m: Modifier): Modifier = m
         .onGloballyPositioned { c ->
@@ -657,16 +786,32 @@ fun MixContent(
         Box(modifier.onGloballyPositioned { drag.root = it.positionInRoot() }) {
             if (wide) {
                 Column(Modifier.fillMaxSize().padding(bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(Modifier.weight(if (dense) 1f else 1.5f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        DeckPanel(vm, clock, 0, false, dense, { openLoad(0) }, deckMod(0, Modifier.weight(1.35f).fillMaxHeight()))
-                        CenterPanel(vm, true, openSettings, micGate, Modifier.weight(1f).fillMaxHeight())
-                        DeckPanel(vm, clock, 1, false, dense, { openLoad(1) }, deckMod(1, Modifier.weight(1.35f).fillMaxHeight()))
-                    }
-                    if (dense) {
-                        MixLibrary(vm, Modifier.fillMaxWidth().height(104.dp))
+                    if (mini) {
+                        Row(Modifier.fillMaxWidth().height(106.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            DeckMini(vm, clock, 0, { openLoad(0) }, deckMod(0, Modifier.weight(1.3f).fillMaxHeight()))
+                            MiniCenter(vm, true, Modifier.weight(1f).fillMaxHeight())
+                            DeckMini(vm, clock, 1, { openLoad(1) }, deckMod(1, Modifier.weight(1.3f).fillMaxHeight()))
+                        }
+                        MixLibrary(vm, Modifier.fillMaxWidth().weight(1f), true, toggle)
                     } else {
-                        MixLibrary(vm, Modifier.fillMaxWidth().weight(1f))
+                        Row(Modifier.weight(if (dense) 1f else 1.5f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            DeckPanel(vm, clock, 0, false, dense, { openLoad(0) }, deckMod(0, Modifier.weight(1.35f).fillMaxHeight()))
+                            CenterPanel(vm, true, openSettings, micGate, Modifier.weight(1f).fillMaxHeight())
+                            DeckPanel(vm, clock, 1, false, dense, { openLoad(1) }, deckMod(1, Modifier.weight(1.35f).fillMaxHeight()))
+                        }
+                        if (dense) {
+                            MixLibrary(vm, Modifier.fillMaxWidth().height(104.dp), false, toggle)
+                        } else {
+                            MixLibrary(vm, Modifier.fillMaxWidth().weight(1f), false, toggle)
+                        }
                     }
+                }
+            } else if (mini) {
+                Column(Modifier.fillMaxSize().padding(bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    DeckMini(vm, clock, 0, { openLoad(0) }, deckMod(0, Modifier.fillMaxWidth()))
+                    DeckMini(vm, clock, 1, { openLoad(1) }, deckMod(1, Modifier.fillMaxWidth()))
+                    MiniCenter(vm, false, Modifier.fillMaxWidth())
+                    MixLibrary(vm, Modifier.fillMaxWidth().weight(1f), true, toggle)
                 }
             } else {
                 Column(
@@ -678,7 +823,7 @@ fun MixContent(
                         DeckPanel(vm, clock, 1, true, dense, { openLoad(1) }, deckMod(1, Modifier.weight(1f).fillMaxHeight()))
                     }
                     CenterPanel(vm, false, openSettings, micGate, Modifier.fillMaxWidth().height(230.dp))
-                    MixLibrary(vm, Modifier.fillMaxWidth().height(270.dp))
+                    MixLibrary(vm, Modifier.fillMaxWidth().height(300.dp), false, toggle)
                 }
             }
             val g = drag.song

@@ -1,5 +1,11 @@
 package com.beatmixer.dj
 
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalDensity
 import kotlinx.coroutines.launch
@@ -59,6 +65,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import kotlin.math.max
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
@@ -175,6 +182,38 @@ fun MixerSettings(vm: MixerViewModel) {
 
 // ------------------------------------------------------------------ DROPS
 
+/** A draggable scroll bar, so a long list of pads can be scrolled without firing them. */
+@Composable
+fun GridScrollStrip(state: LazyGridState, modifier: Modifier = Modifier) {
+    val scope = rememberCoroutineScope()
+    fun jump(f: Float) {
+        val total = state.layoutInfo.totalItemsCount
+        if (total <= 0) return
+        val idx = (f.coerceIn(0f, 1f) * (total - 1)).toInt()
+        scope.launch { state.scrollToItem(idx) }
+    }
+    Canvas(
+        modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(C.Panel2)
+            .pointerInput(Unit) { detectTapGestures { o -> jump(o.y / size.height) } }
+            .pointerInput(Unit) {
+                detectVerticalDragGestures { ch, _ ->
+                    ch.consume()
+                    jump(ch.position.y / size.height)
+                }
+            },
+    ) {
+        val total = max(1, state.layoutInfo.totalItemsCount)
+        val vis = max(1, state.layoutInfo.visibleItemsInfo.size)
+        val frac = if (total <= vis) 0f else (state.firstVisibleItemIndex.toFloat() / (total - vis)).coerceIn(0f, 1f)
+        val th = max(44.dp.toPx(), size.height * vis / total).coerceAtMost(size.height)
+        val ty = frac * (size.height - th)
+        drawRoundRect(C.Border, Offset(size.width / 2f - 2.dp.toPx(), 4.dp.toPx()), Size(4.dp.toPx(), size.height - 8.dp.toPx()), CornerRadius(2.dp.toPx()))
+        drawRoundRect(C.Orange, Offset(4.dp.toPx(), ty), Size(size.width - 8.dp.toPx(), th), CornerRadius(8.dp.toPx()))
+    }
+}
+
 @Composable
 private fun CatChip(label: String, accent: Color, selected: Boolean, onClick: () -> Unit) {
     PadButton(
@@ -214,6 +253,9 @@ fun DropsScreen(vm: MixerViewModel, modifier: Modifier = Modifier) {
             PadButton(Modifier.height(34.dp), accent = C.Yellow, active = onlyFav, activeFill = Color(0xFF3A3A3A), onClick = { onlyFav = !onlyFav }) {
                 Label("FAVORITES", color = C.Yellow, size = 12.sp, modifier = Modifier.padding(horizontal = 10.dp))
             }
+            PadButton(Modifier.height(34.dp), accent = C.Red, active = true, activeFill = C.Red, onClick = { vm.screen = Screen.MIX }) {
+                Label("\u2715 CLOSE", color = Color.White, size = 12.sp, modifier = Modifier.padding(horizontal = 10.dp))
+            }
         }
         Row(
             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -222,15 +264,20 @@ fun DropsScreen(vm: MixerViewModel, modifier: Modifier = Modifier) {
             for (t in tabs) CatChip(t, if (t == "ALL") C.Orange else C.Blue, cat == t) { cat = t }
         }
         val list = vm.drops.filter { (!onlyFav || it.fav) && (cat == "ALL" || effCat(vm, it) == cat) }
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(130.dp),
-            modifier = Modifier.weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            items(list, key = { it.index }) { item ->
-                DropPad(item, vm, Modifier.fillMaxWidth().height(78.dp), onLongClick = { editing = item })
+        val gridState = rememberLazyGridState()
+        Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            LazyVerticalGrid(
+                state = gridState,
+                columns = GridCells.Adaptive(130.dp),
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(list, key = { it.index }) { item ->
+                    DropPad(item, vm, Modifier.fillMaxWidth().height(78.dp), onLongClick = { editing = item })
+                }
             }
+            GridScrollStrip(gridState, Modifier.width(34.dp).fillMaxHeight())
         }
     }
     val e = editing
@@ -615,7 +662,7 @@ fun PlaylistBar(vm: MixerViewModel, compact: Boolean = false, modifier: Modifier
 
 /** Music library shown at the bottom of the MIX screen. */
 @Composable
-fun MixLibrary(vm: MixerViewModel, modifier: Modifier = Modifier) {
+fun MixLibrary(vm: MixerViewModel, modifier: Modifier = Modifier, mini: Boolean = false, onToggle: (() -> Unit)? = null) {
     var q by remember { mutableStateOf("") }
     val shape = RoundedCornerShape(14.dp)
     Column(
@@ -624,13 +671,18 @@ fun MixLibrary(vm: MixerViewModel, modifier: Modifier = Modifier) {
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             PlaylistBar(vm, true, Modifier.weight(1f))
+            if (onToggle != null) {
+                PadButton(Modifier.height(28.dp), accent = C.Green, onClick = onToggle) {
+                    Label(if (mini) "FULL DECKS" else "BIG LIST", color = C.Green, size = 10.sp, modifier = Modifier.padding(horizontal = 8.dp))
+                }
+            }
             BasicTextField(
                 value = q,
                 onValueChange = { q = it },
                 singleLine = true,
                 textStyle = TextStyle(color = C.Text, fontSize = 13.sp),
                 cursorBrush = SolidColor(C.Orange),
-                modifier = Modifier.width(150.dp).height(28.dp).clip(RoundedCornerShape(6.dp)).background(C.Panel2).padding(horizontal = 8.dp, vertical = 5.dp),
+                modifier = Modifier.width(130.dp).height(28.dp).clip(RoundedCornerShape(6.dp)).background(C.Panel2).padding(horizontal = 8.dp, vertical = 5.dp),
                 decorationBox = { inner ->
                     Box {
                         if (q.isEmpty()) Text("Search songs", color = C.Dim, fontSize = 12.sp, maxLines = 1)
