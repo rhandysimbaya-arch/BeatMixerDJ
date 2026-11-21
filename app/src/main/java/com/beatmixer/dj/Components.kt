@@ -23,6 +23,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -55,19 +60,58 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 
+class Theme(
+    val name: String,
+    val bg: Long,
+    val panel: Long,
+    val panel2: Long,
+    val border: Long,
+    val a: Long,
+    val b: Long,
+    val green: Long,
+    val red: Long,
+    val yellow: Long,
+    val dim: Long,
+    val ring: Boolean,
+)
+
+val THEMES = listOf(
+    Theme("PIONEER", 0xFF05070B, 0xFF0F1319, 0xFF181D26, 0xFF2A313D, 0xFF2D9CFF, 0xFFFF2B2B, 0xFF3DDC84, 0xFFE02020, 0xFFFFB300, 0xFF8C97A8, true),
+    Theme("RB PRO", 0xFF000000, 0xFF0D0D0D, 0xFF191919, 0xFF2F2F2F, 0xFFF50000, 0xFFFFFFFF, 0xFFE9E9E9, 0xFFC40000, 0xFFFF5252, 0xFF9A9A9A, false),
+    Theme("CYBER", 0xFF07020F, 0xFF120A20, 0xFF1C1230, 0xFF34244F, 0xFF00E5FF, 0xFFFF2BD6, 0xFF7CFF6B, 0xFFFF3860, 0xFFFFD60A, 0xFF9A8DB8, true),
+    Theme("EMERALD GOLD", 0xFF020805, 0xFF0A130E, 0xFF121F18, 0xFF22382B, 0xFF00E676, 0xFFFFC400, 0xFF69F0AE, 0xFFE53935, 0xFFFFEA00, 0xFF8FA396, true),
+    Theme("SUNSET", 0xFF0B0505, 0xFF170C0C, 0xFF221414, 0xFF3D2424, 0xFFFF8A00, 0xFFFF4081, 0xFFFFD54F, 0xFFD32F2F, 0xFFFFAB40, 0xFFA8918B, true),
+    Theme("ICE", 0xFF03070C, 0xFF0B1118, 0xFF141C26, 0xFF263243, 0xFF7DD3FC, 0xFFE2E8F0, 0xFF5EEAD4, 0xFFF87171, 0xFFFDE68A, 0xFF8B9BB0, true),
+)
+
+/** Live palette. Every colour is Compose state, so changing the theme repaints the whole app. */
 object C {
-    // RB Pro Audio theme: black, red and white
-    val Bg = Color(0xFF000000)
-    val Panel = Color(0xFF0D0D0D)
-    val Panel2 = Color(0xFF191919)
-    val Border = Color(0xFF2F2F2F)
-    val Orange = Color(0xFFF50000)   // deck A / primary accent (logo red)
-    val Blue = Color(0xFFFFFFFF)     // deck B accent (logo white)
-    val Green = Color(0xFFE9E9E9)
-    val Red = Color(0xFFC40000)
-    val Yellow = Color(0xFFFF5252)
-    val Text = Color(0xFFFFFFFF)
-    val Dim = Color(0xFF9A9A9A)
+    var Bg by mutableStateOf(Color(0xFF05070B))
+    var Panel by mutableStateOf(Color(0xFF0F1319))
+    var Panel2 by mutableStateOf(Color(0xFF181D26))
+    var Border by mutableStateOf(Color(0xFF2A313D))
+    var Orange by mutableStateOf(Color(0xFF2D9CFF))   // deck A / primary accent
+    var Blue by mutableStateOf(Color(0xFFFF2B2B))     // deck B accent
+    var Green by mutableStateOf(Color(0xFF3DDC84))
+    var Red by mutableStateOf(Color(0xFFE02020))
+    var Yellow by mutableStateOf(Color(0xFFFFB300))
+    var Text by mutableStateOf(Color(0xFFFFFFFF))
+    var Dim by mutableStateOf(Color(0xFF8C97A8))
+    var Ring by mutableStateOf(true)
+
+    fun apply(t: Theme) {
+        Bg = Color(t.bg)
+        Panel = Color(t.panel)
+        Panel2 = Color(t.panel2)
+        Border = Color(t.border)
+        Orange = Color(t.a)
+        Blue = Color(t.b)
+        Green = Color(t.green)
+        Red = Color(t.red)
+        Yellow = Color(t.yellow)
+        Dim = Color(t.dim)
+        Ring = t.ring
+    }
 }
 
 @Composable
@@ -231,11 +275,44 @@ fun FlatSlider(
 @Composable
 fun Vinyl(deck: Deck, accent: Color, clock: UiClock, modifier: Modifier = Modifier) {
     val logo = ImageBitmap.imageResource(R.drawable.rb_logo)
+    val tm = rememberTextMeasurer()
     Canvas(modifier.aspectRatio(1f)) {
         clock.tick
         val r = size.minDimension / 2f
         val c = center
         val angle = ((deck.posFrames / SR * 200.0) % 360.0).toFloat()
+        if (C.Ring) {
+            val tr = deck.track
+            val total = max(1, tr?.frames ?: 1)
+            val frac = if (tr == null) 0f else (deck.posFrames / total).toFloat().coerceIn(0f, 1f)
+            drawCircle(Color(0xFF07090D), r)
+            // soft glow
+            for (k in 4 downTo 1) {
+                drawCircle(accent.copy(alpha = 0.07f * (5 - k)), r - 3.dp.toPx(), style = Stroke((3 + k * 3).dp.toPx()))
+            }
+            drawCircle(accent.copy(alpha = 0.35f), r - 3.dp.toPx(), style = Stroke(2.dp.toPx()))
+            val arcInset = 3.dp.toPx()
+            drawArc(
+                accent,
+                -90f,
+                360f * frac,
+                false,
+                topLeft = Offset(arcInset, arcInset),
+                size = Size(size.width - arcInset * 2, size.height - arcInset * 2),
+                style = Stroke(4.dp.toPx(), cap = StrokeCap.Round),
+            )
+            drawCircle(Color(0xFF161B22), r * 0.80f, style = Stroke(1.dp.toPx()))
+            rotate(angle, c) {
+                drawLine(accent, Offset(c.x, c.y - r * 0.78f), Offset(c.x, c.y - r * 0.62f), strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)
+            }
+            val bpm = tr?.bpm ?: 0f
+            val rem = if (tr == null) 0f else ((total - deck.posFrames) / SR).toFloat().coerceAtLeast(0f)
+            val l1 = tm.measure(if (bpm > 0f) "%.1f".format(bpm) else "---", TextStyle(color = accent, fontSize = (r * 0.30f / density).sp, fontWeight = FontWeight.Bold))
+            val l2 = tm.measure("-%d:%02d".format(rem.toInt() / 60, rem.toInt() % 60), TextStyle(color = Color(0xFFDDDDDD), fontSize = (r * 0.20f / density).sp))
+            drawText(l1, topLeft = Offset(c.x - l1.size.width / 2f, c.y - l1.size.height - 1.dp.toPx()))
+            drawText(l2, topLeft = Offset(c.x - l2.size.width / 2f, c.y + 1.dp.toPx()))
+            return@Canvas
+        }
         drawCircle(Color(0xFF0A0A0A), r)
         drawCircle(accent, r - 2.dp.toPx(), style = Stroke(3.dp.toPx()))
         drawCircle(Color(0xFF222222), r * 0.86f, style = Stroke(1.dp.toPx()))

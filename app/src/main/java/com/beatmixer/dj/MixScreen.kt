@@ -517,20 +517,20 @@ fun CenterPanel(
 // ---------------------------------------------------------------- drops
 
 private val dropBg = listOf(Color(0xFF2A0505), Color(0xFF1E1E1E), Color(0xFF141414))
-private val dropAccent = listOf(C.Orange, C.Green, C.Blue)
+private fun dropAccent(k: Int): Color = when (k) { 0 -> C.Orange; 1 -> C.Green; else -> C.Blue }
 
 @Composable
 fun DropPad(item: DropItem, vm: MixerViewModel, modifier: Modifier = Modifier, onLongClick: (() -> Unit)? = null) {
     val k = item.index % 3
     PadButton(
         modifier,
-        accent = dropAccent[k],
+        accent = dropAccent(k),
         fill = dropBg[k],
         onPress = { vm.fireDrop(item.index) },
         onLongClick = onLongClick,
     ) {
         Box(
-            Modifier.align(Alignment.TopCenter).fillMaxWidth().height(3.dp).background(dropAccent[k]),
+            Modifier.align(Alignment.TopCenter).fillMaxWidth().height(3.dp).background(dropAccent(k)),
         )
         Label(item.name, color = C.Text, size = 14.sp)
         Icon(
@@ -698,7 +698,7 @@ fun MixerSettingsDialog(vm: MixerViewModel, onDismiss: () -> Unit) {
         containerColor = C.Panel,
         confirmButton = { TextButton(onClick = onDismiss) { Text("DONE") } },
         title = { Text("Mixer settings", color = C.Text) },
-        text = { MixerSettings(vm) },
+        text = { Column(Modifier.verticalScroll(rememberScrollState())) { MixerSettings(vm) } },
     )
 }
 

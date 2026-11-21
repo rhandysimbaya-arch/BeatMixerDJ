@@ -81,6 +81,28 @@ fun SettingRow(title: String, valueText: String, content: @Composable () -> Unit
 @Composable
 fun MixerSettings(vm: MixerViewModel) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Label("THEME", color = C.Dim, size = 11.sp)
+        for (row in THEMES.chunked(2)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                for (t in row) {
+                    val sel = vm.themeName == t.name
+                    PadButton(
+                        Modifier.weight(1f).height(44.dp),
+                        accent = Color(t.a),
+                        active = sel,
+                        activeFill = Color(t.panel2),
+                        onClick = { vm.updateTheme(t.name) },
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                            Box(Modifier.size(12.dp).clip(RoundedCornerShape(3.dp)).background(Color(t.a)))
+                            Box(Modifier.size(12.dp).clip(RoundedCornerShape(3.dp)).background(Color(t.b)))
+                            Label(t.name, color = if (sel) Color.White else C.Dim, size = 11.sp)
+                        }
+                    }
+                }
+                if (row.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
         SettingRow("Microphone volume", "${(vm.micGain * 100).roundToInt()}%") {
             FlatSlider(vm.micGain, { vm.updateMicGain(it) }, Modifier.fillMaxWidth(), range = 0f..2f, accent = C.Green)
         }

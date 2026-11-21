@@ -75,6 +75,7 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var nowPlaying by mutableStateOf("Nothing playing")
     var nowDeck by mutableStateOf(-1)
+    var themeName by mutableStateOf("PIONEER")
         private set
     var outputKind by mutableStateOf("SPEAKER")
         private set
@@ -161,7 +162,15 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ---------- prefs
+    fun updateTheme(name: String) {
+        val t = THEMES.firstOrNull { it.name == name } ?: return
+        themeName = t.name
+        C.apply(t)
+        prefs.edit().putString("theme", t.name).apply()
+    }
+
     private fun loadPrefs() {
+        updateTheme(prefs.getString("theme", "PIONEER") ?: "PIONEER")
         djName = prefs.getString("dj", "DJ DJ") ?: "DJ DJ"
         master = prefs.getFloat("master", 0.85f)
         engine.master = master
