@@ -203,7 +203,7 @@ fun BeatApp(vm: MixerViewModel = viewModel()) {
                 Screen.DROPS -> DropsScreen(vm, m)
                 Screen.MUSIC -> MusicScreen(vm, hasLib, { libLauncher.launch(audioPerm) }, m)
                 Screen.PLAY -> PlayScreen(vm, wide, m)
-                Screen.TOOLS -> ToolsScreen(vm, m)
+                Screen.TOOLS -> ToolsScreen(vm, micGate, m)
                 Screen.HELP -> HelpScreen(m)
             }
         }

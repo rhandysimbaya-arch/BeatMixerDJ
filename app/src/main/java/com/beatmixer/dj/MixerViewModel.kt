@@ -50,6 +50,11 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
     val tempo = mutableStateListOf(0f, 0f)
     val filter = mutableStateListOf(0f, 0f)
     val echo = mutableStateListOf(false, false)
+    val flanger = mutableStateListOf(false, false)
+    val phaser = mutableStateListOf(false, false)
+    val loopSize = mutableStateListOf(4f, 4f)
+    val playlists = mutableStateListOf<Playlist>()
+    var playlistSel by mutableStateOf(-1)
     val eq = mutableStateListOf(0f, 0f, 0f, 0f, 0f, 0f) // deck * 3 + band (low, mid, high), dB
     val hotCues = listOf(
         mutableStateListOf<Float?>(null, null, null, null),
@@ -173,6 +178,7 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun loadPrefs() {
+        loadPlaylists()
         updateTheme(prefs.getString("theme", "PIONEER") ?: "PIONEER")
         djName = prefs.getString("dj", "DJ DJ") ?: "DJ DJ"
         master = prefs.getFloat("master", 0.85f)
@@ -799,6 +805,134 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
         engine.decks[i].echoOn = echo[i]
     }
 
+    /** Picks the deck a double-tapped song should go to: the one that is not playing. */
+    fun loadToActive(s: Song) {
+        val a = engine.decks[0]
+        val b = engine.decks[1]
+        val d = when {
+            !a.playing && b.playing -> 0
+            !b.playing && a.playing -> 1
+            !a.playing && !b.playing -> if (a.track == null) 0 else if (b.track == null) 1 else 0
+            else -> if (crossfader < 0.5f) 1 else 0
+        }
+        loadSong(d, s)
+        toast("Loaded to Deck " + (if (d == 0) "A" else "B"))
+    }
+
+    fun toggleFlanger(i: Int) {
+        flanger[i] = !flanger[i]
+        engine.decks[i].flangerOn = flanger[i]
+    }
+
+    fun togglePhaser(i: Int) {
+        phaser[i] = !phaser[i]
+        engine.decks[i].phaserOn = phaser[i]
+    }
+
+    private val loopSizes = listOf(0.5f, 1f, 2f, 4f, 8f, 16f)
+
+    fun stepLoopSize(i: Int, dir: Int) {
+        val cur = loopSizes.indexOf(loopSize[i]).let { if (it < 0) 3 else it }
+        loopSize[i] = loopSizes[(cur + dir).coerceIn(0, loopSizes.size - 1)]
+        if (loopOn[i]) loopBeats(i, loopSize[i])
+    }
+
+    fun toggleLoop(i: Int) {
+        if (loopOn[i]) exitLoop(i) else loopBeats(i, loopSize[i])
+    }
+
+    fun applyEqPreset(deck: Int, p: EqPreset) {
+        val decks = if (deck < 0) listOf(0, 1) else listOf(deck)
+        for (dk in decks) {
+            setEq(dk, 0, p.low)
+            setEq(dk, 1, p.mid)
+            setEq(dk, 2, p.high)
+        }
+    }
+
+    // ---------- playlists
+    fun visibleSongs(): List<Song> = playlists.firstOrNull { it.id == playlistSel }?.songs ?: library
+
+    private fun savePlaylists() {
+        val arr = JSONArray()
+        for (p in playlists) {
+            val o = JSONObject()
+            o.put("id", p.id)
+            o.put("name", p.name)
+            val sa = JSONArray()
+            for (s in p.songs) {
+                val so = JSONObject()
+                so.put("u", s.uri.toString())
+                so.put("t", s.title)
+                so.put("a", s.artist)
+                so.put("d", s.durationMs)
+                sa.put(so)
+            }
+            o.put("songs", sa)
+            arr.put(o)
+        }
+        prefs.edit().putString("playlists", arr.toString()).apply()
+    }
+
+    private fun loadPlaylists() {
+        val s = prefs.getString("playlists", null) ?: return
+        try {
+            val arr = JSONArray(s)
+            playlists.clear()
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                val p = Playlist(o.getInt("id"), o.getString("name"))
+                val sa = o.getJSONArray("songs")
+                for (k in 0 until sa.length()) {
+                    val so = sa.getJSONObject(k)
+                    p.songs.add(Song(Uri.parse(so.getString("u")), so.getString("t"), so.getString("a"), so.optLong("d", 0L)))
+                }
+                playlists.add(p)
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    fun createPlaylist(name: String): Int {
+        val n = name.trim()
+        if (n.isEmpty()) return -1
+        val id = (playlists.maxOfOrNull { it.id } ?: 0) + 1
+        playlists.add(Playlist(id, n))
+        savePlaylists()
+        return id
+    }
+
+    fun renamePlaylist(id: Int, name: String) {
+        val p = playlists.firstOrNull { it.id == id } ?: return
+        val n = name.trim()
+        if (n.isEmpty()) return
+        p.name = n
+        savePlaylists()
+    }
+
+    fun deletePlaylist(id: Int) {
+        playlists.removeAll { it.id == id }
+        if (playlistSel == id) playlistSel = -1
+        savePlaylists()
+    }
+
+    fun addToPlaylist(id: Int, s: Song) {
+        val p = playlists.firstOrNull { it.id == id } ?: return
+        if (p.songs.any { it.uri == s.uri }) {
+            toast("Already in " + p.name)
+        } else {
+            p.songs.add(s)
+            savePlaylists()
+            toast("Added to " + p.name)
+        }
+    }
+
+    fun removeFromPlaylist(id: Int, s: Song) {
+        val p = playlists.firstOrNull { it.id == id } ?: return
+        p.songs.removeAll { it.uri == s.uri }
+        savePlaylists()
+    }
+
     fun setEq(deck: Int, band: Int, db: Float) {
         val v = if (abs(db) < 0.4f) 0f else db
         eq[deck * 3 + band] = v
@@ -978,7 +1112,7 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun nextSong(exclude: Set<Uri>): Song? {
         if (queue.isNotEmpty()) return queue.removeAt(0)
-        val pool = library.filter { it.uri !in exclude && (it.durationMs == 0L || it.durationMs > 30_000L) }
+        val pool = visibleSongs().filter { it.uri !in exclude && (it.durationMs == 0L || it.durationMs > 30_000L) }
         return if (pool.isEmpty()) null else pool.random()
     }
 

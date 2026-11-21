@@ -38,6 +38,8 @@ class Deck(val id: Int) {
     @Volatile var tempoPct: Float = 0f
     @Volatile var filter: Float = 0f          // -1 (low-pass) .. +1 (high-pass)
     @Volatile var echoOn: Boolean = false
+    @Volatile var flangerOn: Boolean = false
+    @Volatile var phaserOn: Boolean = false
     @Volatile var eqLow: Float = 0f           // dB
     @Volatile var eqMid: Float = 0f
     @Volatile var eqHigh: Float = 0f
@@ -57,6 +59,14 @@ class Deck(val id: Int) {
     private val dlyL = FloatArray(SR * 2)
     private val dlyR = FloatArray(SR * 2)
     private var dIdx = 0
+    private val flL = FloatArray(1024)
+    private val flR = FloatArray(1024)
+    private var flIdx = 0
+    private var flLfo = 0f
+    private val phX = FloatArray(8)
+    private val phY = FloatArray(8)
+    private var phLfo = 0f
+    private var phA = 0f
 
     fun seek(frames: Double) {
         seekReq = frames
@@ -108,6 +118,8 @@ class Deck(val id: Int) {
         val bpmEff = if (baseBpm > 20f) baseBpm * step.toFloat() else 120f
         val dly = (60f / bpmEff * 0.5f * SR).toInt().coerceIn(SR / 8, SR * 2 - 1)
         val echo = echoOn
+        val flanger = flangerOn
+        val phaser = phaserOn
 
         var peak = 0f
         for (i in 0 until n) {
@@ -154,6 +166,50 @@ class Deck(val id: Int) {
                 lo1[1] += aLo * (r - lo1[1])
                 lo2[1] += aHi * (r - lo2[1])
                 r = lo1[1] * gL + (lo2[1] - lo1[1]) * gM + (r - lo2[1]) * gH
+            }
+
+            if (flanger) {
+                flLfo += 0.25f / SR
+                if (flLfo >= 1f) flLfo -= 1f
+                val s = 0.5f + 0.5f * sin(2f * PI.toFloat() * flLfo)
+                val dsm = 3f + s * 300f
+                val rp = flIdx - dsm
+                val i0 = Math.floor(rp.toDouble()).toInt()
+                val fr = rp - i0
+                val a0 = (i0 + 1024) and 1023
+                val a1i = (i0 + 1025) and 1023
+                val dl2 = flL[a0] + (flL[a1i] - flL[a0]) * fr
+                val dr2 = flR[a0] + (flR[a1i] - flR[a0]) * fr
+                flL[flIdx] = l + dl2 * 0.5f
+                flR[flIdx] = r + dr2 * 0.5f
+                flIdx = (flIdx + 1) and 1023
+                l = (l + dl2) * 0.75f
+                r = (r + dr2) * 0.75f
+            }
+
+            if (phaser) {
+                if ((i and 31) == 0) {
+                    phLfo += 32f * 0.4f / SR
+                    if (phLfo >= 1f) phLfo -= 1f
+                    val s = 0.5f + 0.5f * sin(2f * PI.toFloat() * phLfo)
+                    val fc = 300f * 10f.pow(s)
+                    val tn = tan(PI.toFloat() * fc / SR)
+                    phA = (tn - 1f) / (tn + 1f)
+                }
+                var xl = l
+                var xr = r
+                for (st in 0 until 4) {
+                    val yl = phA * xl + phX[st] - phA * phY[st]
+                    phX[st] = xl
+                    phY[st] = yl
+                    xl = yl
+                    val yr = phA * xr + phX[4 + st] - phA * phY[4 + st]
+                    phX[4 + st] = xr
+                    phY[4 + st] = yr
+                    xr = yr
+                }
+                l = (l + xl) * 0.6f
+                r = (r + xr) * 0.6f
             }
 
             val rd = (dIdx - dly + dlyL.size) % dlyL.size

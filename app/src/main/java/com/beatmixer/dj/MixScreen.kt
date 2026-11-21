@@ -2,6 +2,14 @@
 
 package com.beatmixer.dj
 
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.foundation.layout.offset
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -58,6 +66,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -199,7 +208,7 @@ fun TopBar(
 ) {
     if (!compact) {
         Row(
-            modifier.fillMaxWidth().height(60.dp),
+            modifier.fillMaxWidth().height(50.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -261,7 +270,7 @@ fun DeckPanel(
     val ui = vm.deckUi[idx]
     val d = vm.engine.decks[idx]
     val shape = RoundedCornerShape(14.dp)
-    val btnH = if (dense) 38.dp else 46.dp
+    val btnH = if (dense) 34.dp else 40.dp
 
     @Composable
     fun BpmTime() {
@@ -325,7 +334,7 @@ fun DeckPanel(
 
         if (compact) {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Vinyl(d, accent, clock, Modifier)
+                Vinyl(d, accent, clock, Modifier.heightIn(max = 90.dp).fillMaxHeight())
             }
         } else {
             Row(
@@ -333,7 +342,7 @@ fun DeckPanel(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Vinyl(d, accent, clock, Modifier.fillMaxHeight())
+                Vinyl(d, accent, clock, Modifier.heightIn(max = if (dense) 60.dp else 90.dp).fillMaxHeight())
                 ScrollWave(d, d.track, accent, clock, Modifier.weight(1f).fillMaxHeight())
             }
         }
@@ -364,6 +373,17 @@ fun DeckPanel(
             }
         }
 
+        val rh = if (dense) 26.dp else 30.dp
+        if (compact) {
+            HotCueRow(vm, idx, rh, Modifier.fillMaxWidth())
+            LoopRow(vm, idx, accent, rh, Modifier.fillMaxWidth())
+        } else {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                HotCueRow(vm, idx, rh, Modifier.weight(1f))
+                LoopRow(vm, idx, accent, rh, Modifier.weight(1f))
+            }
+        }
+
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Label("TEMPO", color = C.Dim, size = 11.sp)
             FlatSlider(
@@ -380,64 +400,87 @@ fun DeckPanel(
     }
 }
 
-// ---------------------------------------------------------------- center
+private val hcColors = listOf(Color(0xFFFF5252), Color(0xFFFFC107), Color(0xFF4CAF50), Color(0xFF42A5F5))
 
 @Composable
-private fun KnobColumn(vm: MixerViewModel, i: Int, modifier: Modifier) {
-    val accent = if (i == 0) C.Orange else C.Blue
-    BoxWithConstraints(modifier) {
-        val s = maxOf(28.dp, minOf(maxWidth, maxHeight - 18.dp))
-        Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
-            Knob(vm.filter[i], { vm.setFilter(i, it) }, accent, Modifier.size(s))
-            Label(if (i == 0) "FILTER A" else "FILTER B", color = C.Dim, size = 11.sp)
+private fun HotCueRow(vm: MixerViewModel, idx: Int, h: Dp, modifier: Modifier) {
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        for (n in 0..3) {
+            val saved = vm.hotCues[idx][n]
+            PadButton(
+                Modifier.weight(1f).height(h),
+                accent = hcColors[n],
+                active = saved != null,
+                activeFill = hcColors[n],
+                onClick = { vm.hotCue(idx, n) },
+                onLongClick = { vm.clearHotCue(idx, n) },
+            ) { Label("" + (n + 1), color = if (saved != null) Color.Black else hcColors[n], size = 12.sp) }
         }
     }
 }
 
 @Composable
-private fun ControlRows(vm: MixerViewModel, onSettings: () -> Unit, micGate: MicGate, modifier: Modifier) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-            PadButton(
-                Modifier.weight(1f).fillMaxHeight(),
-                accent = C.Orange,
-                active = vm.echo[0],
-                activeFill = Color(0xFF3A0000),
-                onClick = { vm.toggleEcho(0) },
-            ) { Label("ECHO A", color = C.Orange, size = 13.sp) }
-            PadButton(
-                Modifier.weight(1f).fillMaxHeight(),
-                accent = C.Blue,
-                active = vm.echo[1],
-                activeFill = Color(0xFF3A3A3A),
-                onClick = { vm.toggleEcho(1) },
-            ) { Label("ECHO B", color = C.Blue, size = 13.sp) }
+private fun LoopRow(vm: MixerViewModel, idx: Int, accent: Color, h: Dp, modifier: Modifier) {
+    val sz = vm.loopSize[idx]
+    val txt = if (sz < 1f) "1/2" else sz.toInt().toString()
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+        PadButton(Modifier.width(28.dp).height(h), accent = accent, onClick = { vm.stepLoopSize(idx, -1) }) {
+            Label("\u2039", color = accent, size = 16.sp)
         }
-        Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-            PadButton(
-                Modifier.weight(1f).fillMaxHeight(),
-                accent = C.Green,
-                active = vm.micOn,
-                activeFill = Color(0xFF3A3A3A),
-                onClick = {
-                    if (vm.micOn) vm.setMic(false) else if (micGate { vm.setMic(true) }) vm.setMic(true)
-                },
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Icon(Icons.Filled.Mic, null, tint = C.Green, modifier = Modifier.size(16.dp))
-                    Label("MIC", color = C.Green, size = 13.sp)
-                }
-            }
-            PadButton(
-                Modifier.weight(1.2f).fillMaxHeight(),
-                accent = C.Red,
-                active = vm.mcTalk,
-                activeFill = Color(0xFF4A0000),
-                onPress = { if (micGate(null)) vm.mcDown() },
-                onRelease = { vm.mcUp() },
-            ) { Label("MC TALK", color = C.Red, size = 13.sp) }
-            PadButton(Modifier.width(40.dp).fillMaxHeight(), accent = C.Dim, onClick = onSettings) {
-                Icon(Icons.Filled.Tune, null, tint = C.Dim, modifier = Modifier.size(18.dp))
+        Label(txt, color = C.Text, size = 12.sp, modifier = Modifier.width(22.dp), maxLines = 1)
+        PadButton(Modifier.width(28.dp).height(h), accent = accent, onClick = { vm.stepLoopSize(idx, 1) }) {
+            Label("\u203A", color = accent, size = 16.sp)
+        }
+        PadButton(
+            Modifier.weight(1f).height(h),
+            accent = accent,
+            active = vm.loopOn[idx],
+            activeFill = accent,
+            onClick = { vm.toggleLoop(idx) },
+        ) { Label("LOOP", color = if (vm.loopOn[idx]) Color.Black else accent, size = 12.sp) }
+    }
+}
+
+// ---------------------------------------------------------------- center
+
+private val fxNames = listOf("ECHO", "FLANGER", "PHASER")
+
+private fun fxOn(vm: MixerViewModel, fx: Int, d: Int): Boolean = when (fx) {
+    0 -> vm.echo[d]
+    1 -> vm.flanger[d]
+    else -> vm.phaser[d]
+}
+
+private fun fxToggle(vm: MixerViewModel, fx: Int, d: Int) {
+    when (fx) {
+        0 -> vm.toggleEcho(d)
+        1 -> vm.toggleFlanger(d)
+        else -> vm.togglePhaser(d)
+    }
+}
+
+@Composable
+private fun FxToggle(vm: MixerViewModel, fx: Int, d: Int, modifier: Modifier) {
+    val accent = if (d == 0) C.Orange else C.Blue
+    val on = fxOn(vm, fx, d)
+    PadButton(modifier, accent = accent, active = on, activeFill = accent, onClick = { fxToggle(vm, fx, d) }) {
+        Label(if (on) "ON" else "OFF", color = if (on) Color.Black else accent, size = 12.sp)
+    }
+}
+
+@Composable
+private fun FxPanel(vm: MixerViewModel, modifier: Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { Label("DECK A", color = C.Orange, size = 11.sp) }
+            Label("EFFECTS", color = C.Dim, size = 10.sp, modifier = Modifier.width(60.dp))
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { Label("DECK B", color = C.Blue, size = 11.sp) }
+        }
+        for (fx in 0..2) {
+            Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                FxToggle(vm, fx, 0, Modifier.weight(1f).fillMaxHeight())
+                Label(fxNames[fx], color = C.Text, size = 10.sp, modifier = Modifier.width(56.dp))
+                FxToggle(vm, fx, 1, Modifier.weight(1f).fillMaxHeight())
             }
         }
         Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -448,24 +491,12 @@ private fun ControlRows(vm: MixerViewModel, onSettings: () -> Unit, micGate: Mic
                 activeFill = C.Yellow,
                 onClick = { vm.updateAutoMix(!vm.autoMix) },
             ) { Label("AUTO-MIX", color = if (vm.autoMix) Color.Black else C.Yellow, size = 13.sp) }
-            PadButton(Modifier.width(40.dp).fillMaxHeight(), accent = C.Dim, onClick = { vm.skipNext() }) {
+            PadButton(Modifier.width(44.dp).fillMaxHeight(), accent = C.Dim, onClick = { vm.skipNext() }) {
                 Icon(Icons.Filled.SkipNext, null, tint = C.Text, modifier = Modifier.size(20.dp))
-            }
-            PadButton(
-                Modifier.weight(1f).fillMaxHeight(),
-                accent = C.Red,
-                active = vm.recording,
-                activeFill = Color(0xFF4A0000),
-                onClick = { vm.toggleRec() },
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Icon(Icons.Filled.FiberManualRecord, null, tint = C.Red, modifier = Modifier.size(14.dp))
-                    Label(if (vm.recording) fmtTime(vm.recSeconds) else "REC", color = C.Red, size = 13.sp)
-                }
             }
         }
         Row(
-            Modifier.weight(0.9f).fillMaxWidth(),
+            Modifier.weight(0.8f).fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
@@ -492,21 +523,7 @@ fun CenterPanel(
 ) {
     val shape = RoundedCornerShape(14.dp)
     Box(modifier.clip(shape).background(C.Panel).border(1.dp, C.Border, shape).padding(8.dp)) {
-        if (wide) {
-            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(Modifier.weight(1.7f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    KnobColumn(vm, 0, Modifier.weight(1f).fillMaxHeight())
-                    KnobColumn(vm, 1, Modifier.weight(1f).fillMaxHeight())
-                }
-                ControlRows(vm, onSettings, micGate, Modifier.weight(3.6f).fillMaxWidth())
-            }
-        } else {
-            Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                KnobColumn(vm, 0, Modifier.width(62.dp).fillMaxHeight())
-                ControlRows(vm, onSettings, micGate, Modifier.weight(1f).fillMaxHeight())
-                KnobColumn(vm, 1, Modifier.width(62.dp).fillMaxHeight())
-            }
-        }
+        FxPanel(vm, Modifier.fillMaxSize())
     }
 }
 
@@ -593,28 +610,71 @@ fun MixContent(
     micGate: MicGate,
     modifier: Modifier = Modifier,
 ) {
-    if (wide) {
-        Column(modifier.padding(bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                DeckPanel(vm, clock, 0, false, dense, { openLoad(0) }, Modifier.weight(1.35f).fillMaxHeight())
-                CenterPanel(vm, true, openSettings, micGate, Modifier.weight(1f).fillMaxHeight())
-                DeckPanel(vm, clock, 1, false, dense, { openLoad(1) }, Modifier.weight(1.35f).fillMaxHeight())
-            }
-            DropsBar(vm, perPage, Modifier.fillMaxWidth().height(if (dense) 44.dp else 54.dp))
+    val drag = remember { DragCtl() }
+    val hot = if (drag.song != null) drag.deckAt(drag.pos) else -1
+    fun deckMod(i: Int, m: Modifier): Modifier = m
+        .onGloballyPositioned { c ->
+            val r = c.boundsInRoot()
+            if (i == 0) drag.b0 = r else drag.b1 = r
         }
-    } else {
-        Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                DeckPanel(vm, clock, 0, true, dense, { openLoad(0) }, Modifier.weight(1f).fillMaxHeight())
-                DeckPanel(vm, clock, 1, true, dense, { openLoad(1) }, Modifier.weight(1f).fillMaxHeight())
+        .then(if (hot == i) Modifier.border(3.dp, if (i == 0) C.Orange else C.Blue, RoundedCornerShape(14.dp)) else Modifier)
+
+    CompositionLocalProvider(LocalDrag provides drag) {
+        Box(modifier.onGloballyPositioned { drag.root = it.positionInRoot() }) {
+            if (wide) {
+                Column(Modifier.fillMaxSize().padding(bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(Modifier.weight(if (dense) 1.6f else 1.5f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        DeckPanel(vm, clock, 0, false, dense, { openLoad(0) }, deckMod(0, Modifier.weight(1.35f).fillMaxHeight()))
+                        CenterPanel(vm, true, openSettings, micGate, Modifier.weight(1f).fillMaxHeight())
+                        DeckPanel(vm, clock, 1, false, dense, { openLoad(1) }, deckMod(1, Modifier.weight(1.35f).fillMaxHeight()))
+                    }
+                    Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        MixLibrary(vm, Modifier.weight(2f).fillMaxHeight())
+                        FavDrops(vm, dense, Modifier.weight(1f).fillMaxHeight())
+                    }
+                }
+            } else {
+                Column(
+                    Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Row(Modifier.fillMaxWidth().height(350.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        DeckPanel(vm, clock, 0, true, dense, { openLoad(0) }, deckMod(0, Modifier.weight(1f).fillMaxHeight()))
+                        DeckPanel(vm, clock, 1, true, dense, { openLoad(1) }, deckMod(1, Modifier.weight(1f).fillMaxHeight()))
+                    }
+                    CenterPanel(vm, false, openSettings, micGate, Modifier.fillMaxWidth().height(150.dp))
+                    MixLibrary(vm, Modifier.fillMaxWidth().height(270.dp))
+                }
             }
-            CenterPanel(vm, false, openSettings, micGate, Modifier.fillMaxWidth().height(172.dp))
-            DropsBar(vm, perPage, Modifier.fillMaxWidth().height(50.dp))
+            val g = drag.song
+            if (g != null) {
+                Box(
+                    Modifier
+                        .offset { IntOffset((drag.pos.x - drag.root.x).roundToInt() - 70.dp.roundToPx(), (drag.pos.y - drag.root.y).roundToInt() - 44.dp.roundToPx()) }
+                        .width(140.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(C.Orange.copy(alpha = 0.92f))
+                        .padding(8.dp),
+                ) {
+                    Text(g.title, color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 2)
+                }
+            }
         }
     }
 }
 
 // ---------------------------------------------------------------- dialogs
+
+@Composable
+private fun PresetChips(accent: Color, onPick: (EqPreset) -> Unit) {
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        for (p in EQ_PRESETS) {
+            PadButton(Modifier.height(32.dp), accent = accent, onClick = { onPick(p) }) {
+                Label(p.name, color = accent, size = 11.sp, modifier = Modifier.padding(horizontal = 10.dp))
+            }
+        }
+    }
+}
 
 @Composable
 fun EqDialog(vm: MixerViewModel, onDismiss: () -> Unit) {
@@ -624,12 +684,16 @@ fun EqDialog(vm: MixerViewModel, onDismiss: () -> Unit) {
         containerColor = C.Panel,
         confirmButton = { TextButton(onClick = onDismiss) { Text("DONE") } },
         dismissButton = { TextButton(onClick = { vm.resetEq() }) { Text("RESET") } },
-        title = { Text("Equalizer (tap + / - , tap the value to reset)", color = C.Text, fontSize = 16.sp) },
+        title = { Text("Equalizer", color = C.Text, fontSize = 18.sp) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Label("PRESETS - BOTH DECKS", color = C.Green, size = 12.sp)
+                PresetChips(C.Green) { vm.applyEqPreset(-1, it) }
+                Label("Tap + / - to adjust, tap the value to reset.", color = C.Dim, size = 10.sp, weight = FontWeight.Normal, maxLines = 2)
                 for (dk in 0..1) {
                     val accent = if (dk == 0) C.Orange else C.Blue
-                    Label(if (dk == 0) "DECK A" else "DECK B", color = accent, size = 13.sp, modifier = Modifier.padding(top = 4.dp))
+                    Label(if (dk == 0) "DECK A" else "DECK B", color = accent, size = 13.sp, modifier = Modifier.padding(top = 6.dp))
+                    PresetChips(accent) { vm.applyEqPreset(dk, it) }
                     for (b in 0..2) {
                         val cur = vm.eq[dk * 3 + b]
                         Row(

@@ -1,5 +1,16 @@
 package com.beatmixer.dj
 
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.FiberManualRecord
+import androidx.compose.material3.Icon
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -318,6 +329,8 @@ fun MusicScreen(
             }
         }
         if (tab == 0) {
+            PlaylistBar(vm)
+            Label("Long-press a playlist to rename or delete it. Tap PL on a song to add it. Double-tap a song to load it.", color = C.Dim, size = 10.sp, weight = FontWeight.Normal, maxLines = 3)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 PadButton(
                     Modifier.weight(1f).height(36.dp),
@@ -325,7 +338,7 @@ fun MusicScreen(
                     active = !vm.folderMode,
                     activeFill = Color(0xFF3A0000),
                     onClick = { vm.showAllMusic() },
-                ) { Label("ALL MUSIC", color = C.Orange, size = 12.sp) }
+                ) { Label("DEVICE", color = C.Orange, size = 12.sp) }
                 PadButton(
                     Modifier.weight(1.4f).height(36.dp),
                     accent = C.Blue,
@@ -371,7 +384,7 @@ fun MusicScreen(
                 placeholder = { Text("Search") },
                 modifier = Modifier.fillMaxWidth(),
             )
-            val list = vm.library.filter { q.isBlank() || it.title.contains(q, true) || it.artist.contains(q, true) }
+            val list = vm.visibleSongs().filter { q.isBlank() || it.title.contains(q, true) || it.artist.contains(q, true) }
             LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 items(list, key = { it.uri.toString() }) { s ->
                     SongRow(vm, s)
@@ -439,22 +452,46 @@ private fun DeckTag(vm: MixerViewModel, i: Int, s: Song, modifier: Modifier) {
 }
 
 @Composable
-private fun SongRow(vm: MixerViewModel, s: Song) {
+fun SongRow(vm: MixerViewModel, s: Song, compact: Boolean = false) {
+    val drag = LocalDrag.current
+    var origin by remember { mutableStateOf(Offset.Zero) }
+    var pickPl by remember { mutableStateOf(false) }
     val onA = vm.deckUi[0].loaded && vm.deckUi[0].uri == s.uri.toString()
     val onB = vm.deckUi[1].loaded && vm.deckUi[1].uri == s.uri.toString()
+    val bh = if (compact) 32.dp else 36.dp
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(C.Panel).padding(horizontal = 10.dp, vertical = 6.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(C.Panel2).padding(horizontal = 8.dp, vertical = if (compact) 3.dp else 6.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
-        Column(Modifier.weight(1f)) {
-            Text(s.title, color = C.Text, fontSize = 14.sp, maxLines = 1)
-            Text(
-                if (s.durationMs > 0) s.artist + "  \u2022  " + fmtTime(s.durationMs / 1000f) else s.artist,
-                color = C.Dim,
-                fontSize = 11.sp,
-                maxLines = 1,
-            )
+        Column(
+            Modifier
+                .weight(1f)
+                .onGloballyPositioned { origin = it.positionInRoot() }
+                .pointerInput(s) { detectTapGestures(onDoubleTap = { vm.loadToActive(s) }) }
+                .pointerInput(s) {
+                    if (drag != null) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = { o ->
+                                drag.song = s
+                                drag.pos = origin + o
+                            },
+                            onDrag = { ch, amt ->
+                                ch.consume()
+                                drag.pos = drag.pos + amt
+                            },
+                            onDragEnd = {
+                                val d = drag.deckAt(drag.pos)
+                                val sg = drag.song
+                                drag.song = null
+                                if (d >= 0 && sg != null) vm.loadSong(d, sg)
+                            },
+                            onDragCancel = { drag.song = null },
+                        )
+                    }
+                },
+        ) {
+            Text(s.title, color = C.Text, fontSize = if (compact) 13.sp else 14.sp, maxLines = 1)
             if (onA || onB) {
                 val d = if (onA && vm.deckUi[0].playing) 0 else if (onB && vm.deckUi[1].playing) 1 else if (onA) 0 else 1
                 val playingNow = vm.deckUi[d].playing
@@ -463,12 +500,191 @@ private fun SongRow(vm: MixerViewModel, s: Song) {
                     color = if (d == 0) C.Orange else C.Blue,
                     size = 10.sp,
                 )
+            } else {
+                Text(
+                    if (s.durationMs > 0) s.artist + "  \u2022  " + fmtTime(s.durationMs / 1000f) else s.artist,
+                    color = C.Dim,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                )
             }
         }
-        DeckTag(vm, 0, s, Modifier.size(width = 50.dp, height = 36.dp))
-        DeckTag(vm, 1, s, Modifier.size(width = 50.dp, height = 36.dp))
-        PadButton(Modifier.size(width = 44.dp, height = 36.dp), accent = C.Yellow, onClick = { vm.enqueue(s) }) {
+        DeckTag(vm, 0, s, Modifier.size(width = if (compact) 44.dp else 50.dp, height = bh))
+        DeckTag(vm, 1, s, Modifier.size(width = if (compact) 44.dp else 50.dp, height = bh))
+        PadButton(Modifier.size(width = 40.dp, height = bh), accent = C.Yellow, onClick = { vm.enqueue(s) }) {
             Label("+Q", color = C.Yellow, size = 12.sp)
+        }
+        PadButton(Modifier.size(width = 40.dp, height = bh), accent = C.Green, onClick = { pickPl = true }) {
+            Label("PL", color = C.Green, size = 12.sp)
+        }
+    }
+    if (pickPl) {
+        var nn by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { pickPl = false },
+            containerColor = C.Panel,
+            title = { Text("Playlist", color = C.Text, fontSize = 18.sp) },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Label(s.title, color = C.Dim, size = 12.sp, weight = FontWeight.Normal)
+                    for (p in vm.playlists.toList()) {
+                        TextButton(onClick = {
+                            vm.addToPlaylist(p.id, s)
+                            pickPl = false
+                        }) { Text("ADD TO: " + p.name) }
+                    }
+                    OutlinedTextField(value = nn, onValueChange = { nn = it }, singleLine = true, label = { Text("New playlist name") })
+                    TextButton(onClick = {
+                        val id = vm.createPlaylist(nn)
+                        if (id >= 0) vm.addToPlaylist(id, s)
+                        pickPl = false
+                    }) { Text("CREATE PLAYLIST AND ADD") }
+                    val cur = vm.playlists.firstOrNull { it.id == vm.playlistSel }
+                    if (cur != null) {
+                        TextButton(onClick = {
+                            vm.removeFromPlaylist(cur.id, s)
+                            pickPl = false
+                        }) { Text("REMOVE FROM " + cur.name) }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { pickPl = false }) { Text("CLOSE") } },
+        )
+    }
+}
+
+@Composable
+fun PlaylistBar(vm: MixerViewModel, compact: Boolean = false) {
+    var creating by remember { mutableStateOf(false) }
+    var managing by remember { mutableStateOf<Playlist?>(null) }
+    val h = if (compact) 28.dp else 34.dp
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        PadButton(
+            Modifier.height(h),
+            accent = C.Orange,
+            active = vm.playlistSel < 0,
+            activeFill = C.Orange.copy(alpha = 0.28f),
+            onClick = { vm.playlistSel = -1 },
+        ) { Label("ALL MUSIC", color = C.Orange, size = 11.sp, modifier = Modifier.padding(horizontal = 10.dp)) }
+        for (p in vm.playlists.toList()) {
+            PadButton(
+                Modifier.height(h),
+                accent = C.Blue,
+                active = vm.playlistSel == p.id,
+                activeFill = C.Blue.copy(alpha = 0.28f),
+                onClick = { vm.playlistSel = p.id },
+                onLongClick = { managing = p },
+            ) { Label(p.name + " (" + p.songs.size + ")", color = C.Blue, size = 11.sp, modifier = Modifier.padding(horizontal = 10.dp)) }
+        }
+        PadButton(Modifier.height(h), accent = C.Green, onClick = { creating = true }) {
+            Label("+ PLAYLIST", color = C.Green, size = 11.sp, modifier = Modifier.padding(horizontal = 10.dp))
+        }
+    }
+    if (creating) {
+        var nm by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { creating = false },
+            containerColor = C.Panel,
+            title = { Text("New playlist", color = C.Text, fontSize = 18.sp) },
+            text = { OutlinedTextField(value = nm, onValueChange = { nm = it }, singleLine = true, label = { Text("Name") }) },
+            confirmButton = {
+                TextButton(onClick = {
+                    val id = vm.createPlaylist(nm)
+                    if (id >= 0) vm.playlistSel = id
+                    creating = false
+                }) { Text("CREATE") }
+            },
+            dismissButton = { TextButton(onClick = { creating = false }) { Text("CANCEL") } },
+        )
+    }
+    val mg = managing
+    if (mg != null) {
+        var nm by remember(mg) { mutableStateOf(mg.name) }
+        AlertDialog(
+            onDismissRequest = { managing = null },
+            containerColor = C.Panel,
+            title = { Text("Playlist", color = C.Text, fontSize = 18.sp) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    OutlinedTextField(value = nm, onValueChange = { nm = it }, singleLine = true, label = { Text("Name") })
+                    TextButton(onClick = {
+                        vm.deletePlaylist(mg.id)
+                        managing = null
+                    }) { Text("DELETE THIS PLAYLIST") }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.renamePlaylist(mg.id, nm)
+                    managing = null
+                }) { Text("SAVE") }
+            },
+            dismissButton = { TextButton(onClick = { managing = null }) { Text("CANCEL") } },
+        )
+    }
+}
+
+/** Music library shown at the bottom of the MIX screen. */
+@Composable
+fun MixLibrary(vm: MixerViewModel, modifier: Modifier = Modifier) {
+    var q by remember { mutableStateOf("") }
+    val shape = RoundedCornerShape(14.dp)
+    BoxWithConstraints(modifier.clip(shape).background(C.Panel).border(1.dp, C.Border, shape).padding(6.dp)) {
+        val tall = maxHeight > 150.dp
+        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            PlaylistBar(vm, true)
+            if (tall) {
+                BasicTextField(
+                    value = q,
+                    onValueChange = { q = it },
+                    singleLine = true,
+                    textStyle = TextStyle(color = C.Text, fontSize = 13.sp),
+                    cursorBrush = SolidColor(C.Orange),
+                    modifier = Modifier.fillMaxWidth().height(30.dp).clip(RoundedCornerShape(6.dp)).background(C.Panel2).padding(horizontal = 8.dp, vertical = 6.dp),
+                    decorationBox = { inner ->
+                        Box {
+                            if (q.isEmpty()) Text("Search  -  hold a song and drag it to a deck, or double-tap to load", color = C.Dim, fontSize = 12.sp, maxLines = 1)
+                            inner()
+                        }
+                    },
+                )
+            }
+            val list = vm.visibleSongs().filter { q.isBlank() || it.title.contains(q, true) || it.artist.contains(q, true) }
+            if (list.isEmpty()) {
+                Label(
+                    "No songs here. Open the MUSIC tab to allow access, choose a folder or add files.",
+                    color = C.Dim,
+                    size = 11.sp,
+                    weight = FontWeight.Normal,
+                    maxLines = 3,
+                )
+            }
+            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                items(list, key = { it.uri.toString() }) { s -> SongRow(vm, s, true) }
+            }
+        }
+    }
+}
+
+/** Favourite drops next to the library on wide screens. */
+@Composable
+fun FavDrops(vm: MixerViewModel, dense: Boolean, modifier: Modifier = Modifier) {
+    val shape = RoundedCornerShape(14.dp)
+    Column(modifier.clip(shape).background(C.Panel).border(1.dp, C.Border, shape).padding(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Label("DROPS", color = C.Dim, size = 11.sp)
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(78.dp),
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            items(vm.drops.filter { it.fav }, key = { it.index }) { item ->
+                DropPad(item, vm, Modifier.fillMaxWidth().height(if (dense) 34.dp else 42.dp))
+            }
         }
     }
 }
@@ -591,12 +807,51 @@ fun PlayScreen(vm: MixerViewModel, wide: Boolean, modifier: Modifier = Modifier)
 // ------------------------------------------------------------------ TOOLS
 
 @Composable
-fun ToolsScreen(vm: MixerViewModel, modifier: Modifier = Modifier) {
+fun ToolsScreen(vm: MixerViewModel, micGate: MicGate, modifier: Modifier = Modifier) {
     var nameDialog by remember { mutableStateOf(false) }
     Column(
         modifier.padding(8.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        Card {
+            Heading("LIVE MIC AND RECORDING")
+            Row(Modifier.fillMaxWidth().height(46.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                PadButton(
+                    Modifier.weight(1f).fillMaxHeight(),
+                    accent = C.Green,
+                    active = vm.micOn,
+                    activeFill = Color(0xFF3A3A3A),
+                    onClick = {
+                        if (vm.micOn) vm.setMic(false) else if (micGate { vm.setMic(true) }) vm.setMic(true)
+                    },
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Icon(Icons.Filled.Mic, null, tint = C.Green, modifier = Modifier.size(16.dp))
+                        Label("MIC", color = C.Green, size = 13.sp)
+                    }
+                }
+                PadButton(
+                    Modifier.weight(1.3f).fillMaxHeight(),
+                    accent = C.Red,
+                    active = vm.mcTalk,
+                    activeFill = Color(0xFF4A0000),
+                    onPress = { if (micGate(null)) vm.mcDown() },
+                    onRelease = { vm.mcUp() },
+                ) { Label("MC TALK (hold)", color = C.Red, size = 13.sp) }
+                PadButton(
+                    Modifier.weight(1f).fillMaxHeight(),
+                    accent = C.Red,
+                    active = vm.recording,
+                    activeFill = Color(0xFF4A0000),
+                    onClick = { vm.toggleRec() },
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Icon(Icons.Filled.FiberManualRecord, null, tint = C.Red, modifier = Modifier.size(14.dp))
+                        Label(if (vm.recording) fmtTime(vm.recSeconds) else "REC", color = C.Red, size = 13.sp)
+                    }
+                }
+            }
+        }
         Card {
             Heading("OUTPUT")
             val msg = when (vm.outputKind) {

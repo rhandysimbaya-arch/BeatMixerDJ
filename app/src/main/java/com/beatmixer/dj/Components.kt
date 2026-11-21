@@ -1,5 +1,7 @@
 package com.beatmixer.dj
 
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -530,3 +532,20 @@ fun DeckBadge(letter: String, accent: Color, playing: Boolean, boxSize: Dp) {
         )
     }
 }
+
+/** Drag-and-drop of a song from the on-screen library onto a deck. */
+class DragCtl {
+    var song by mutableStateOf<Song?>(null)
+    var pos by mutableStateOf(Offset.Zero)
+    var root by mutableStateOf(Offset.Zero)
+    var b0 by mutableStateOf<Rect?>(null)
+    var b1 by mutableStateOf<Rect?>(null)
+
+    fun deckAt(p: Offset): Int = when {
+        b0?.contains(p) == true -> 0
+        b1?.contains(p) == true -> 1
+        else -> -1
+    }
+}
+
+val LocalDrag = staticCompositionLocalOf<DragCtl?> { null }

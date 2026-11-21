@@ -2,6 +2,7 @@ package com.beatmixer.dj
 
 import android.net.Uri
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 
@@ -48,6 +49,25 @@ val DEFAULT_DROP_CATEGORIES = listOf("HORNS", "FX", "BASS", "PERCUSSION", "VOICE
 val BUILTIN_DROP_CATEGORY = listOf(
     "HORNS", "HORNS", "FX", "BASS", "FX", "FX", "PERCUSSION", "PERCUSSION", "PERCUSSION",
     "FX", "FX", "BASS", "VOICE", "VOICE", "FX", "VOICE", "VOICE", "VOICE",
+)
+
+class Playlist(val id: Int, initialName: String) {
+    var name by mutableStateOf(initialName)
+    val songs = mutableStateListOf<Song>()
+}
+
+class EqPreset(val name: String, val low: Float, val mid: Float, val high: Float)
+
+val EQ_PRESETS = listOf(
+    EqPreset("FLAT", 0f, 0f, 0f),
+    EqPreset("PUNCHY BASS", 6f, -3f, 0f),
+    EqPreset("BASS BOOST", 6f, 0f, -3f),
+    EqPreset("POP", 0f, 3f, 3f),
+    EqPreset("ROCK", 3f, -3f, 3f),
+    EqPreset("HIP-HOP", 6f, 0f, 3f),
+    EqPreset("VOCAL", -3f, 6f, 3f),
+    EqPreset("TREBLE BOOST", -3f, 0f, 6f),
+    EqPreset("LOUDNESS", 6f, -3f, 6f),
 )
 
 /** Allowed tempo slider range, in percent (+/-). */
