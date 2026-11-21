@@ -100,7 +100,10 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
     val library = mutableStateListOf<Song>()
     val queue = mutableStateListOf<Song>()
     val recFiles = mutableStateListOf<File>()
-    val drops: List<DropItem> = DropSynth.all.mapIndexed { i, d -> DropItem(i, d.name) }
+    val drops = mutableStateListOf<DropItem>().apply {
+        addAll(DropSynth.all.mapIndexed { i, d -> DropItem(i, d.name).also { it.category = BUILTIN_DROP_CATEGORY.getOrElse(i) { "FX" } } })
+    }
+    val categories = mutableStateListOf<String>()
 
     val messages = MutableSharedFlow<String>(extraBufferCapacity = 8)
 
@@ -220,24 +223,63 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ---------- drops
+    private fun drop(id: Int): DropItem? = drops.firstOrNull { it.index == id }
+
+    private fun saveCategories() {
+        prefs.edit().putString("dropCats", categories.joinToString("\n")).apply()
+    }
+
+    fun addCategory(name: String) {
+        val n = name.trim().uppercase()
+        if (n.isEmpty() || n == "OTHER" || categories.any { it == n }) return
+        categories.add(n)
+        saveCategories()
+    }
+
+    fun removeCategory(name: String) {
+        categories.remove(name)
+        saveCategories()
+    }
+
+    fun setDropCategory(id: Int, cat: String) {
+        val d = drop(id) ?: return
+        d.category = cat
+        prefs.edit().putString("dropCat_$id", cat).apply()
+    }
+
     private fun initDrops() {
+        val cs = prefs.getString("dropCats", null)
+        categories.clear()
+        if (cs == null) categories.addAll(DEFAULT_DROP_CATEGORIES) else categories.addAll(cs.split("\n").filter { it.isNotBlank() })
+        for (d in drops.toList()) {
+            val sc = prefs.getString("dropCat_" + d.index, null)
+            if (sc != null) d.category = sc
+        }
+        val ids = prefs.getString("userDropIds", null)?.split(",")?.mapNotNull { it.toIntOrNull() } ?: emptyList()
+        for (id in ids) {
+            val it = DropItem(id, prefs.getString("udName_$id", "DROP") ?: "DROP", false)
+            it.name = it.defaultName
+            it.category = prefs.getString("dropCat_$id", "") ?: ""
+            it.custom = true
+            drops.add(it)
+        }
         viewModelScope.launch {
             val defs = DropSynth.all
             val samples = withContext(Dispatchers.Default) { defs.map { it.gen() } }
             val favStr = prefs.getString("favs", null)
             val favSet = favStr?.split(",")?.mapNotNull { it.toIntOrNull() }?.toSet()
-            drops.forEachIndexed { i, item ->
-                item.sample = samples[i]
-                if (favSet != null) item.fav = i in favSet
-                val nm = prefs.getString("dropName_$i", null)
+            for (item in drops.toList()) {
+                if (item.builtin) item.sample = samples.getOrNull(item.index)
+                if (favSet != null) item.fav = item.index in favSet
+                val nm = prefs.getString("dropName_" + item.index, null)
                 if (nm != null) item.name = nm
             }
-            for (i in drops.indices) {
-                val u = prefs.getString("dropUri_$i", null) ?: continue
+            for (item in drops.toList()) {
+                val u = (if (item.builtin) prefs.getString("dropUri_" + item.index, null) else prefs.getString("udUri_" + item.index, null)) ?: continue
                 val custom = withContext(Dispatchers.Default) { decodeDrop(Uri.parse(u)) }
                 if (custom != null) {
-                    drops[i].sample = custom
-                    drops[i].custom = true
+                    item.sample = custom
+                    item.custom = true
                 }
             }
         }
@@ -258,21 +300,21 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun fireDrop(idx: Int) {
-        val s = drops.getOrNull(idx)?.sample ?: return
+        val s = drop(idx)?.sample ?: return
         engine.triggerDrop(s, 1f)
     }
 
     fun toggleFav(idx: Int) {
-        val d = drops.getOrNull(idx) ?: return
+        val d = drop(idx) ?: return
         d.fav = !d.fav
         prefs.edit().putString("favs", drops.filter { it.fav }.joinToString(",") { it.index.toString() }).apply()
     }
 
     fun renameDrop(idx: Int, name: String) {
-        val d = drops.getOrNull(idx) ?: return
+        val d = drop(idx) ?: return
         val n = name.trim().ifEmpty { d.defaultName }
         d.name = n
-        prefs.edit().putString("dropName_$idx", n).apply()
+        prefs.edit().putString(if (d.builtin) "dropName_$idx" else "udName_$idx", n).apply()
     }
 
     fun setCustomDrop(idx: Int, uri: Uri) {
@@ -282,19 +324,59 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
             } catch (_: Exception) {
             }
             val s = withContext(Dispatchers.Default) { decodeDrop(uri) }
-            if (s == null) {
+            val d = drop(idx)
+            if (s == null || d == null) {
                 toast("Could not read that audio file")
             } else {
-                drops[idx].sample = s
-                drops[idx].custom = true
-                prefs.edit().putString("dropUri_$idx", uri.toString()).apply()
+                d.sample = s
+                d.custom = true
+                prefs.edit().putString(if (d.builtin) "dropUri_$idx" else "udUri_$idx", uri.toString()).apply()
                 toast("Drop replaced (max 8 seconds used)")
             }
         }
     }
 
+    fun addDrop(name: String, category: String, uri: Uri) {
+        viewModelScope.launch {
+            try {
+                ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (_: Exception) {
+            }
+            val s = withContext(Dispatchers.Default) { decodeDrop(uri) }
+            if (s == null) {
+                toast("Could not read that audio file")
+                return@launch
+            }
+            val id = prefs.getInt("nextDropId", 1000)
+            val item = DropItem(id, name.trim().ifEmpty { "DROP" }, false)
+            item.name = item.defaultName
+            item.category = category
+            item.custom = true
+            item.sample = s
+            drops.add(item)
+            val ids = (prefs.getString("userDropIds", null)?.split(",")?.filter { it.isNotBlank() } ?: emptyList()) + id.toString()
+            prefs.edit()
+                .putInt("nextDropId", id + 1)
+                .putString("userDropIds", ids.joinToString(","))
+                .putString("udName_$id", item.name)
+                .putString("udUri_$id", uri.toString())
+                .putString("dropCat_$id", category)
+                .apply()
+            toast("Drop added (max 8 seconds used)")
+        }
+    }
+
+    fun deleteDrop(idx: Int) {
+        val d = drop(idx) ?: return
+        if (d.builtin) return
+        drops.remove(d)
+        val ids = (prefs.getString("userDropIds", null)?.split(",")?.filter { it.isNotBlank() && it != idx.toString() } ?: emptyList())
+        prefs.edit().putString("userDropIds", ids.joinToString(",")).remove("udName_$idx").remove("udUri_$idx").remove("dropCat_$idx").apply()
+    }
+
     fun resetDrop(idx: Int) {
-        val d = drops.getOrNull(idx) ?: return
+        val d = drop(idx) ?: return
+        if (!d.builtin) return
         viewModelScope.launch {
             d.sample = withContext(Dispatchers.Default) { DropSynth.all[idx].gen() }
             d.custom = false

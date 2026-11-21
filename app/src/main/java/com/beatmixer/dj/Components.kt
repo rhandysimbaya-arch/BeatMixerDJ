@@ -345,7 +345,6 @@ fun OverviewWave(
     modifier: Modifier = Modifier,
 ) {
     val seek by rememberUpdatedState(onSeek)
-    val reveal = remember(track) { floatArrayOf(0f) }
     val tmp = remember(track) { FloatArray(track?.peaks?.size ?: 1) }
     Canvas(
         modifier
@@ -367,9 +366,9 @@ fun OverviewWave(
         val ready = if (track.complete) total else min(total, track.readyFrames)
         val target = if (track.complete) 1f else (ready.toFloat() / total).coerceIn(0f, 1f)
         // smooth reveal: glide toward the decoded fraction, never jump
-        val cur = reveal[0]
-        reveal[0] = min(target, cur + max((target - cur) * 0.10f, 0.006f))
-        val shown = reveal[0] * n
+        val cur = track.revealed
+        track.revealed = min(target, cur + max((target - cur) * 0.10f, 0.006f))
+        val shown = (track.revealed) * n
         val per = max(1, total / n)
         var mx = 0f
         if (track.complete) {
@@ -408,7 +407,7 @@ fun OverviewWave(
             val col = (if (played) accent.copy(alpha = 0.35f) else accent.copy(alpha = 0.95f)).copy(alpha = (if (played) 0.35f else 0.95f) * (0.3f + 0.7f * ease))
             drawLine(col, Offset(x, (size.height - h) / 2f), Offset(x, (size.height + h) / 2f), strokeWidth = max(1f, bw))
         }
-        if (reveal[0] < 0.999f) {
+        if ((track.revealed) < 0.999f) {
             val ex = (shown * bw).coerceIn(0f, size.width)
             drawLine(accent.copy(alpha = 0.9f), Offset(ex, 0f), Offset(ex, size.height), strokeWidth = 2.dp.toPx())
         }
@@ -463,24 +462,24 @@ fun ScrollWave(deck: Deck, track: Track?, accent: Color, clock: UiClock, modifie
 fun VuMeter(engine: MixEngine, clock: UiClock, modifier: Modifier = Modifier) {
     Canvas(modifier) {
         clock.tick
-        val segs = 10
+        val segs = 14
         val gap = 2.dp.toPx()
-        val sh = (size.height - gap * (segs - 1)) / segs
-        val bw = (size.width - 3.dp.toPx()) / 2f
+        val sw = (size.width - gap * (segs - 1)) / segs
+        val rowGap = 3.dp.toPx()
+        val bh = (size.height - rowGap) / 2f
         for (ch in 0..1) {
             val lvl = if (ch == 0) engine.peakL else engine.peakR
             for (s in 0 until segs) {
                 val lit = lvl >= (s + 1) / segs.toFloat() * 0.95f
                 val base = when {
-                    s >= 9 -> C.Red
-                    s >= 7 -> C.Yellow
+                    s >= 12 -> C.Red
+                    s >= 9 -> C.Yellow
                     else -> C.Green
                 }
-                val y = size.height - (s + 1) * sh - s * gap
                 drawRect(
                     if (lit) base else base.copy(alpha = 0.18f),
-                    Offset(ch * (bw + 3.dp.toPx()), y),
-                    Size(bw, sh),
+                    Offset(s * (sw + gap), ch * (bh + rowGap)),
+                    Size(sw, bh),
                 )
             }
         }

@@ -42,6 +42,8 @@ class Track(
     @Volatile var cancelled: Boolean = false
     @Volatile var bpm: Float = 0f
     @Volatile var beatOffset: Float = 0f
+    /** How much of the overview wave has been animated in; kept here so it survives tab switches. */
+    @Volatile var revealed: Float = 0f
 }
 
 private class PcmBuilder(initialCapacity: Int) {

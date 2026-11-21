@@ -139,8 +139,8 @@ private fun OutputChip(kind: String, modifier: Modifier = Modifier) {
 private fun StopAllButton(vm: MixerViewModel, modifier: Modifier = Modifier) {
     PadButton(modifier = modifier, accent = C.Red, active = true, activeFill = C.Red, onClick = { vm.stopAll() }) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(Modifier.size(14.dp).background(Color.White))
-            Label("STOP ALL", color = Color.White, size = 14.sp)
+            Box(Modifier.size(11.dp).background(Color.White))
+            Label("STOP", color = Color.White, size = 13.sp)
         }
     }
 }
@@ -204,15 +204,13 @@ fun TopBar(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             NowPlayingBox(vm, Modifier.weight(1f))
-            OutputChip(vm.outputKind, Modifier.widthIn(max = 92.dp))
-            DjChip(vm, onName, Modifier.height(40.dp))
             PadButton(Modifier.width(52.dp).height(40.dp), accent = C.Orange, onClick = onEq) {
                 Label("EQ", color = C.Orange, size = 15.sp)
             }
-            VuMeter(vm.engine, clock, Modifier.width(16.dp).height(44.dp))
+            VuMeter(vm.engine, clock, Modifier.width(96.dp).height(26.dp))
             MasterBox(vm, Modifier.width(150.dp))
             MuteButton(vm, Modifier.size(44.dp))
-            StopAllButton(vm, Modifier.height(44.dp).width(130.dp))
+            StopAllButton(vm, Modifier.height(40.dp).width(92.dp))
         }
     } else {
         Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -223,15 +221,14 @@ fun TopBar(
             ) {
                 LogoMark(Modifier.size(width = 66.dp, height = 36.dp))
                 NowPlayingBox(vm, Modifier.weight(1f))
-                StopAllButton(vm, Modifier.height(38.dp).width(116.dp))
+                StopAllButton(vm, Modifier.height(36.dp).width(88.dp))
             }
             Row(
                 Modifier.fillMaxWidth().height(38.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                OutputChip(vm.outputKind, Modifier.weight(1f))
-                DjChip(vm, onName, Modifier.height(34.dp))
+                VuMeter(vm.engine, clock, Modifier.weight(1f).height(26.dp))
                 PadButton(Modifier.width(46.dp).height(34.dp), accent = C.Orange, onClick = onEq) {
                     Label("EQ", color = C.Orange, size = 14.sp)
                 }
@@ -241,7 +238,6 @@ fun TopBar(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                VuMeter(vm.engine, clock, Modifier.width(14.dp).height(34.dp))
                 MasterBox(vm, Modifier.weight(1f))
                 MuteButton(vm, Modifier.size(38.dp))
             }

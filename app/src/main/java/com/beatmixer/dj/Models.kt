@@ -32,14 +32,23 @@ enum class Screen(val label: String) {
     HELP("HELP"),
 }
 
-class DropItem(val index: Int, val defaultName: String) {
+class DropItem(val index: Int, val defaultName: String, val builtin: Boolean = true) {
     var name by mutableStateOf(defaultName)
     var fav by mutableStateOf(true)
     var custom by mutableStateOf(false)
+    var category by mutableStateOf("")
 
     @Volatile
     var sample: ShortArray? = null
 }
+
+val DEFAULT_DROP_CATEGORIES = listOf("HORNS", "FX", "BASS", "PERCUSSION", "VOICE")
+
+/** Category of each built-in drop, by its position in DropSynth.all. */
+val BUILTIN_DROP_CATEGORY = listOf(
+    "HORNS", "HORNS", "FX", "BASS", "FX", "FX", "PERCUSSION", "PERCUSSION", "PERCUSSION",
+    "FX", "FX", "BASS", "VOICE", "VOICE", "FX", "VOICE", "VOICE", "VOICE",
+)
 
 /** Allowed tempo slider range, in percent (+/-). */
 const val TEMPO_RANGE = 30f

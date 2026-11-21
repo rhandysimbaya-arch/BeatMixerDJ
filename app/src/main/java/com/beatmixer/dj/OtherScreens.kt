@@ -7,6 +7,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.horizontalScroll
+import android.net.Uri
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -103,6 +105,29 @@ fun MixerSettings(vm: MixerViewModel) {
                 if (row.size == 1) Spacer(Modifier.weight(1f))
             }
         }
+        Label("DROP CATEGORIES", color = C.Dim, size = 11.sp)
+        var newCat by remember { mutableStateOf("") }
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            for (t in vm.categories.toList()) {
+                PadButton(Modifier.height(34.dp), accent = C.Blue, onClick = { vm.removeCategory(t) }) {
+                    Label(t + "  \u2715", color = C.Blue, size = 11.sp, modifier = Modifier.padding(horizontal = 10.dp))
+                }
+            }
+        }
+        Label("Tap a category to remove it (its drops move to OTHER).", color = C.Dim, size = 10.sp, weight = FontWeight.Normal, maxLines = 3)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            OutlinedTextField(
+                value = newCat,
+                onValueChange = { newCat = it },
+                singleLine = true,
+                label = { Text("New category") },
+                modifier = Modifier.weight(1f),
+            )
+            PadButton(Modifier.height(40.dp), accent = C.Green, onClick = {
+                vm.addCategory(newCat)
+                newCat = ""
+            }) { Label("ADD", color = C.Green, size = 12.sp, modifier = Modifier.padding(horizontal = 12.dp)) }
+        }
         SettingRow("Microphone volume", "${(vm.micGain * 100).roundToInt()}%") {
             FlatSlider(vm.micGain, { vm.updateMicGain(it) }, Modifier.fillMaxWidth(), range = 0f..2f, accent = C.Green)
         }
@@ -136,22 +161,52 @@ fun MixerSettings(vm: MixerViewModel) {
 // ------------------------------------------------------------------ DROPS
 
 @Composable
+private fun CatChip(label: String, accent: Color, selected: Boolean, onClick: () -> Unit) {
+    PadButton(
+        Modifier.height(34.dp),
+        accent = accent,
+        active = selected,
+        activeFill = accent.copy(alpha = 0.28f),
+        onClick = onClick,
+    ) { Label(label, color = if (selected) C.Text else accent, size = 12.sp, modifier = Modifier.padding(horizontal = 12.dp)) }
+}
+
+private fun effCat(vm: MixerViewModel, d: DropItem): String = if (d.category in vm.categories) d.category else "OTHER"
+
+@Composable
 fun DropsScreen(vm: MixerViewModel, modifier: Modifier = Modifier) {
     var onlyFav by remember { mutableStateOf(false) }
+    var cat by remember { mutableStateOf("ALL") }
     var editing by remember { mutableStateOf<DropItem?>(null) }
+    var adding by remember { mutableStateOf<Uri?>(null) }
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u ->
         val e = editing
         if (u != null && e != null) vm.setCustomDrop(e.index, u)
     }
+    val pickNew = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u ->
+        if (u != null) adding = u
+    }
+    val hasOther = vm.drops.any { effCat(vm, it) == "OTHER" }
+    val tabs = listOf("ALL") + vm.categories.toList() + (if (hasOther) listOf("OTHER") else emptyList())
+    if (cat !in tabs) cat = "ALL"
     Column(modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Heading("DROPS")
-            Label("Tap to fire. Long-press to rename or replace the sound.", color = C.Dim, size = 12.sp, weight = FontWeight.Normal, maxLines = 8, modifier = Modifier.weight(1f))
+            Label("Tap to fire. Long-press to edit.", color = C.Dim, size = 12.sp, weight = FontWeight.Normal, maxLines = 2, modifier = Modifier.weight(1f))
+            PadButton(Modifier.height(34.dp), accent = C.Green, onClick = { pickNew.launch(arrayOf("audio/*")) }) {
+                Label("+ ADD DROP", color = C.Green, size = 12.sp, modifier = Modifier.padding(horizontal = 10.dp))
+            }
             PadButton(Modifier.height(34.dp), accent = C.Yellow, active = onlyFav, activeFill = Color(0xFF3A3A3A), onClick = { onlyFav = !onlyFav }) {
                 Label("FAVORITES", color = C.Yellow, size = 12.sp, modifier = Modifier.padding(horizontal = 10.dp))
             }
         }
-        val list = vm.drops.filter { !onlyFav || it.fav }
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            for (t in tabs) CatChip(t, if (t == "ALL") C.Orange else C.Blue, cat == t) { cat = t }
+        }
+        val list = vm.drops.filter { (!onlyFav || it.fav) && (cat == "ALL" || effCat(vm, it) == cat) }
         LazyVerticalGrid(
             columns = GridCells.Adaptive(130.dp),
             modifier = Modifier.weight(1f),
@@ -171,13 +226,24 @@ fun DropsScreen(vm: MixerViewModel, modifier: Modifier = Modifier) {
             containerColor = C.Panel,
             title = { Text("Edit drop", color = C.Text) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(value = text, onValueChange = { text = it }, singleLine = true, label = { Text("Name") })
+                    Label("CATEGORY", color = C.Dim, size = 11.sp)
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        for (t in vm.categories.toList()) CatChip(t, C.Blue, e.category == t) { vm.setDropCategory(e.index, t) }
+                    }
                     TextButton(onClick = { pick.launch(arrayOf("audio/*")) }) { Text("REPLACE SOUND WITH A FILE") }
-                    TextButton(onClick = {
-                        vm.resetDrop(e.index)
-                        editing = null
-                    }) { Text("RESET TO DEFAULT") }
+                    if (e.builtin) {
+                        TextButton(onClick = {
+                            vm.resetDrop(e.index)
+                            editing = null
+                        }) { Text("RESET TO DEFAULT") }
+                    } else {
+                        TextButton(onClick = {
+                            vm.deleteDrop(e.index)
+                            editing = null
+                        }) { Text("DELETE THIS DROP") }
+                    }
                 }
             },
             confirmButton = {
@@ -187,6 +253,33 @@ fun DropsScreen(vm: MixerViewModel, modifier: Modifier = Modifier) {
                 }) { Text("SAVE") }
             },
             dismissButton = { TextButton(onClick = { editing = null }) { Text("CANCEL") } },
+        )
+    }
+    val nu = adding
+    if (nu != null) {
+        var nm by remember(nu) { mutableStateOf("") }
+        var nc by remember(nu) { mutableStateOf(if (cat in vm.categories) cat else (vm.categories.firstOrNull() ?: "")) }
+        AlertDialog(
+            onDismissRequest = { adding = null },
+            containerColor = C.Panel,
+            title = { Text("Add drop", color = C.Text) },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = nm, onValueChange = { nm = it }, singleLine = true, label = { Text("Drop name") })
+                    Label("CATEGORY", color = C.Dim, size = 11.sp)
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        for (t in vm.categories.toList()) CatChip(t, C.Blue, nc == t) { nc = t }
+                    }
+                    Label("Add or remove categories in Mixer settings (Tools).", color = C.Dim, size = 11.sp, weight = FontWeight.Normal, maxLines = 3)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.addDrop(nm, nc, nu)
+                    adding = null
+                }) { Text("ADD") }
+            },
+            dismissButton = { TextButton(onClick = { adding = null }) { Text("CANCEL") } },
         )
     }
 }
