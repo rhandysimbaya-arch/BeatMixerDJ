@@ -680,6 +680,7 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
         if (deckUi[deck].loading) return
         val d = engine.decks[deck]
         d.playing = false
+        d.braking = false
         deckUi[deck] = deckUi[deck].copy(loading = true, title = song.title, artist = "Loading...")
         viewModelScope.launch {
             val t = withContext(Dispatchers.IO) {
@@ -736,8 +737,17 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
         if (new != old) deckUi[i] = new
     }
 
+    fun brake(i: Int) {
+        val d = engine.decks[i]
+        if (d.track == null || !d.playing) return
+        d.brakeMul = 1f
+        d.braking = true
+    }
+
     fun togglePlay(i: Int) {
         val d = engine.decks[i]
+        d.braking = false
+        d.brakeMul = 1f
         val t = d.track
         if (t == null) {
             toast("Load a song on deck ${'A' + i} first")

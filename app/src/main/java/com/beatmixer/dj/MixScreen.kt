@@ -2,6 +2,17 @@
 
 package com.beatmixer.dj
 
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.runtime.CompositionLocalProvider
@@ -204,6 +215,7 @@ fun TopBar(
     compact: Boolean,
     onEq: () -> Unit,
     onName: () -> Unit,
+    onLogo: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     if (!compact) {
@@ -212,6 +224,7 @@ fun TopBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            LogoMark(Modifier.size(width = 62.dp, height = 36.dp).clip(RoundedCornerShape(8.dp)).clickable(onClick = onLogo))
             NowPlayingBox(vm, Modifier.weight(1f))
             PadButton(Modifier.width(52.dp).height(40.dp), accent = C.Orange, onClick = onEq) {
                 Label("EQ", color = C.Orange, size = 15.sp)
@@ -228,7 +241,7 @@ fun TopBar(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                LogoMark(Modifier.size(width = 66.dp, height = 36.dp))
+                LogoMark(Modifier.size(width = 66.dp, height = 36.dp).clip(RoundedCornerShape(8.dp)).clickable(onClick = onLogo))
                 NowPlayingBox(vm, Modifier.weight(1f))
                 StopAllButton(vm, Modifier.height(36.dp).width(88.dp))
             }
@@ -329,7 +342,7 @@ fun DeckPanel(
             accent = accent,
             clock = clock,
             onSeek = { vm.seekFraction(idx, it) },
-            modifier = Modifier.fillMaxWidth().height(if (dense) 22.dp else 30.dp),
+            modifier = Modifier.fillMaxWidth().height(if (dense) 20.dp else 30.dp),
         )
 
         if (compact) {
@@ -342,8 +355,9 @@ fun DeckPanel(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Vinyl(d, accent, clock, Modifier.heightIn(max = if (dense) 60.dp else 90.dp).fillMaxHeight())
+                Vinyl(d, accent, clock, Modifier.heightIn(max = 170.dp).fillMaxHeight())
                 ScrollWave(d, d.track, accent, clock, Modifier.weight(1f).fillMaxHeight())
+                TempoV(vm, idx, accent, Modifier.width(34.dp).fillMaxHeight())
             }
         }
 
@@ -368,6 +382,9 @@ fun DeckPanel(
                     modifier = Modifier.size(26.dp),
                 )
             }
+            PadButton(Modifier.weight(0.9f).height(btnH), accent = C.Red, onClick = { vm.brake(idx) }) {
+                Box(Modifier.size(13.dp).background(C.Red))
+            }
             PadButton(Modifier.weight(1f).height(btnH), accent = accent, onClick = { vm.sync(idx) }) {
                 Label("SYNC", color = accent, size = 15.sp)
             }
@@ -384,7 +401,7 @@ fun DeckPanel(
             }
         }
 
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        if (compact) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Label("TEMPO", color = C.Dim, size = 11.sp)
             FlatSlider(
                 value = vm.tempo[idx],
@@ -397,6 +414,43 @@ fun DeckPanel(
             )
             Label("%+.1f%%".format(vm.tempo[idx]), color = C.Text, size = 12.sp, modifier = Modifier.width(54.dp))
         }
+    }
+}
+
+@Composable
+private fun TempoV(vm: MixerViewModel, idx: Int, accent: Color, modifier: Modifier) {
+    val v = vm.tempo[idx]
+    val setT by rememberUpdatedState { f: Float ->
+        val t = TEMPO_RANGE - f * 2f * TEMPO_RANGE
+        vm.setTempo(idx, if (abs(t) < 0.4f) 0f else (t * 10f).roundToInt() / 10f)
+    }
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Canvas(
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onDoubleTap = { vm.setTempo(idx, 0f) },
+                        onTap = { o -> setT((o.y / size.height).coerceIn(0f, 1f)) },
+                    )
+                }
+                .pointerInput(Unit) {
+                    detectVerticalDragGestures { ch, _ ->
+                        ch.consume()
+                        setT((ch.position.y / size.height).coerceIn(0f, 1f))
+                    }
+                },
+        ) {
+            val cx = size.width / 2f
+            val th = 10.dp.toPx()
+            drawRect(C.Border, Offset(cx - 2.dp.toPx(), 0f), Size(4.dp.toPx(), size.height))
+            drawRect(C.Dim, Offset(cx - 8.dp.toPx(), size.height / 2f - 1f), Size(16.dp.toPx(), 2f))
+            val f = 1f - (v + TEMPO_RANGE) / (2f * TEMPO_RANGE)
+            val ty = th / 2f + f * (size.height - th)
+            drawRoundRect(accent, Offset(cx - 12.dp.toPx(), ty - th / 2f), Size(24.dp.toPx(), th), CornerRadius(3.dp.toPx()))
+        }
+        Text("%+.0f".format(v), color = C.Dim, fontSize = 9.sp, maxLines = 1)
     }
 }
 
@@ -443,47 +497,27 @@ private fun LoopRow(vm: MixerViewModel, idx: Int, accent: Color, h: Dp, modifier
 
 // ---------------------------------------------------------------- center
 
-private val fxNames = listOf("ECHO", "FLANGER", "PHASER")
-
-private fun fxOn(vm: MixerViewModel, fx: Int, d: Int): Boolean = when (fx) {
-    0 -> vm.echo[d]
-    1 -> vm.flanger[d]
-    else -> vm.phaser[d]
-}
-
-private fun fxToggle(vm: MixerViewModel, fx: Int, d: Int) {
-    when (fx) {
-        0 -> vm.toggleEcho(d)
-        1 -> vm.toggleFlanger(d)
-        else -> vm.togglePhaser(d)
-    }
-}
-
-@Composable
-private fun FxToggle(vm: MixerViewModel, fx: Int, d: Int, modifier: Modifier) {
-    val accent = if (d == 0) C.Orange else C.Blue
-    val on = fxOn(vm, fx, d)
-    PadButton(modifier, accent = accent, active = on, activeFill = accent, onClick = { fxToggle(vm, fx, d) }) {
-        Label(if (on) "ON" else "OFF", color = if (on) Color.Black else accent, size = 12.sp)
-    }
-}
-
 @Composable
 private fun FxPanel(vm: MixerViewModel, modifier: Modifier) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { Label("DECK A", color = C.Orange, size = 11.sp) }
-            Label("EFFECTS", color = C.Dim, size = 10.sp, modifier = Modifier.width(60.dp))
-            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { Label("DECK B", color = C.Blue, size = 11.sp) }
-        }
-        for (fx in 0..2) {
-            Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                FxToggle(vm, fx, 0, Modifier.weight(1f).fillMaxHeight())
-                Label(fxNames[fx], color = C.Text, size = 10.sp, modifier = Modifier.width(56.dp))
-                FxToggle(vm, fx, 1, Modifier.weight(1f).fillMaxHeight())
+        Row(Modifier.fillMaxWidth().height(28.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Label("DROPS", color = C.Dim, size = 11.sp, modifier = Modifier.weight(1f))
+            PadButton(Modifier.height(26.dp), accent = C.Green, onClick = { vm.screen = Screen.DROPS }) {
+                Label("ALL DROPS \u203A", color = C.Green, size = 11.sp, modifier = Modifier.padding(horizontal = 8.dp))
             }
         }
-        Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+        val list = vm.drops.filter { it.fav }.ifEmpty { vm.drops.toList() }
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(66.dp),
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            items(list, key = { it.index }) { item ->
+                DropPad(item, vm, Modifier.fillMaxWidth().height(34.dp))
+            }
+        }
+        Row(Modifier.fillMaxWidth().height(38.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
             PadButton(
                 Modifier.weight(1.4f).fillMaxHeight(),
                 accent = C.Yellow,
@@ -496,7 +530,7 @@ private fun FxPanel(vm: MixerViewModel, modifier: Modifier) {
             }
         }
         Row(
-            Modifier.weight(0.8f).fillMaxWidth(),
+            Modifier.fillMaxWidth().height(28.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
@@ -623,14 +657,15 @@ fun MixContent(
         Box(modifier.onGloballyPositioned { drag.root = it.positionInRoot() }) {
             if (wide) {
                 Column(Modifier.fillMaxSize().padding(bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(Modifier.weight(if (dense) 1.6f else 1.5f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.weight(if (dense) 1f else 1.5f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         DeckPanel(vm, clock, 0, false, dense, { openLoad(0) }, deckMod(0, Modifier.weight(1.35f).fillMaxHeight()))
                         CenterPanel(vm, true, openSettings, micGate, Modifier.weight(1f).fillMaxHeight())
                         DeckPanel(vm, clock, 1, false, dense, { openLoad(1) }, deckMod(1, Modifier.weight(1.35f).fillMaxHeight()))
                     }
-                    Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        MixLibrary(vm, Modifier.weight(2f).fillMaxHeight())
-                        FavDrops(vm, dense, Modifier.weight(1f).fillMaxHeight())
+                    if (dense) {
+                        MixLibrary(vm, Modifier.fillMaxWidth().height(104.dp))
+                    } else {
+                        MixLibrary(vm, Modifier.fillMaxWidth().weight(1f))
                     }
                 }
             } else {
@@ -642,7 +677,7 @@ fun MixContent(
                         DeckPanel(vm, clock, 0, true, dense, { openLoad(0) }, deckMod(0, Modifier.weight(1f).fillMaxHeight()))
                         DeckPanel(vm, clock, 1, true, dense, { openLoad(1) }, deckMod(1, Modifier.weight(1f).fillMaxHeight()))
                     }
-                    CenterPanel(vm, false, openSettings, micGate, Modifier.fillMaxWidth().height(150.dp))
+                    CenterPanel(vm, false, openSettings, micGate, Modifier.fillMaxWidth().height(230.dp))
                     MixLibrary(vm, Modifier.fillMaxWidth().height(270.dp))
                 }
             }

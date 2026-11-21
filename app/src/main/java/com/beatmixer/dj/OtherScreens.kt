@@ -333,8 +333,8 @@ fun MusicScreen(
             }
         }
         if (tab == 0) {
-            PlaylistBar(vm)
-            Label("Long-press a playlist to rename or delete it. Tap PL on a song to add it. Double-tap a song to load it.", color = C.Dim, size = 10.sp, weight = FontWeight.Normal, maxLines = 3)
+            PlaylistBar(vm, false, Modifier.fillMaxWidth())
+            Label("Tap a song to add it to a playlist. Double-tap to load it to a deck. Hold and drag onto a deck (MIX screen). Long-press a playlist to rename or delete it.", color = C.Dim, size = 10.sp, weight = FontWeight.Normal, maxLines = 3)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 PadButton(
                     Modifier.weight(1f).height(36.dp),
@@ -433,68 +433,44 @@ fun MusicScreen(
 }
 
 @Composable
-private fun DeckTag(vm: MixerViewModel, i: Int, s: Song, modifier: Modifier) {
-    val accent = if (i == 0) C.Orange else C.Blue
-    val ui = vm.deckUi[i]
-    val deckPlaying = ui.playing
-    val hasSong = ui.loaded && ui.uri == s.uri.toString()
-    val p = if (deckPlaying) pulseValue() else 1f
-    PadButton(
-        modifier,
-        accent = accent.copy(alpha = if (deckPlaying) p else 1f),
-        active = hasSong,
-        activeFill = if (deckPlaying) accent else Color(0xFF3A3A3A),
-        onClick = { vm.loadSong(i, s) },
-    ) {
-        val letter = if (i == 0) "A" else "B"
-        Label(
-            if (hasSong && deckPlaying) "\u25B6" + letter else letter,
-            color = if (hasSong && deckPlaying) Color.Black else accent,
-            size = 14.sp,
-        )
-    }
-}
-
-@Composable
 fun SongRow(vm: MixerViewModel, s: Song, compact: Boolean = false) {
     val drag = LocalDrag.current
     var origin by remember { mutableStateOf(Offset.Zero) }
-    var pickPl by remember { mutableStateOf(false) }
+    var pick by remember { mutableStateOf(false) }
     val onA = vm.deckUi[0].loaded && vm.deckUi[0].uri == s.uri.toString()
     val onB = vm.deckUi[1].loaded && vm.deckUi[1].uri == s.uri.toString()
-    val bh = if (compact) 32.dp else 36.dp
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(C.Panel2).padding(horizontal = 8.dp, vertical = if (compact) 3.dp else 6.dp),
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(C.Panel2)
+            .onGloballyPositioned { origin = it.positionInRoot() }
+            .pointerInput(s) { detectTapGestures(onTap = { pick = true }, onDoubleTap = { vm.loadToActive(s) }) }
+            .pointerInput(s) {
+                if (drag != null) {
+                    detectDragGesturesAfterLongPress(
+                        onDragStart = { o ->
+                            drag.song = s
+                            drag.pos = origin + o
+                        },
+                        onDrag = { ch, amt ->
+                            ch.consume()
+                            drag.pos = drag.pos + amt
+                        },
+                        onDragEnd = {
+                            val d = drag.deckAt(drag.pos)
+                            val sg = drag.song
+                            drag.song = null
+                            if (d >= 0 && sg != null) vm.loadSong(d, sg)
+                        },
+                        onDragCancel = { drag.song = null },
+                    )
+                }
+            }
+            .padding(horizontal = 10.dp, vertical = if (compact) 4.dp else 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
-        Column(
-            Modifier
-                .weight(1f)
-                .onGloballyPositioned { origin = it.positionInRoot() }
-                .pointerInput(s) { detectTapGestures(onDoubleTap = { vm.loadToActive(s) }) }
-                .pointerInput(s) {
-                    if (drag != null) {
-                        detectDragGesturesAfterLongPress(
-                            onDragStart = { o ->
-                                drag.song = s
-                                drag.pos = origin + o
-                            },
-                            onDrag = { ch, amt ->
-                                ch.consume()
-                                drag.pos = drag.pos + amt
-                            },
-                            onDragEnd = {
-                                val d = drag.deckAt(drag.pos)
-                                val sg = drag.song
-                                drag.song = null
-                                if (d >= 0 && sg != null) vm.loadSong(d, sg)
-                            },
-                            onDragCancel = { drag.song = null },
-                        )
-                    }
-                },
-        ) {
+        Column(Modifier.weight(1f)) {
             Text(s.title, color = C.Text, fontSize = if (compact) 13.sp else 14.sp, maxLines = 1)
             if (onA || onB) {
                 val d = if (onA && vm.deckUi[0].playing) 0 else if (onB && vm.deckUi[1].playing) 1 else if (onA) 0 else 1
@@ -513,57 +489,62 @@ fun SongRow(vm: MixerViewModel, s: Song, compact: Boolean = false) {
                 )
             }
         }
-        DeckTag(vm, 0, s, Modifier.size(width = if (compact) 44.dp else 50.dp, height = bh))
-        DeckTag(vm, 1, s, Modifier.size(width = if (compact) 44.dp else 50.dp, height = bh))
-        PadButton(Modifier.size(width = 40.dp, height = bh), accent = C.Yellow, onClick = { vm.enqueue(s) }) {
-            Label("+Q", color = C.Yellow, size = 12.sp)
-        }
-        PadButton(Modifier.size(width = 40.dp, height = bh), accent = C.Green, onClick = { pickPl = true }) {
-            Label("PL", color = C.Green, size = 12.sp)
-        }
     }
-    if (pickPl) {
+    if (pick) {
         var nn by remember { mutableStateOf("") }
         AlertDialog(
-            onDismissRequest = { pickPl = false },
+            onDismissRequest = { pick = false },
             containerColor = C.Panel,
-            title = { Text("Playlist", color = C.Text, fontSize = 18.sp) },
+            title = { Text("Add to a playlist?", color = C.Text, fontSize = 18.sp) },
             text = {
-                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Label(s.title, color = C.Dim, size = 12.sp, weight = FontWeight.Normal)
                     for (p in vm.playlists.toList()) {
                         TextButton(onClick = {
                             vm.addToPlaylist(p.id, s)
-                            pickPl = false
+                            pick = false
                         }) { Text("ADD TO: " + p.name) }
                     }
                     OutlinedTextField(value = nn, onValueChange = { nn = it }, singleLine = true, label = { Text("New playlist name") })
                     TextButton(onClick = {
                         val id = vm.createPlaylist(nn)
                         if (id >= 0) vm.addToPlaylist(id, s)
-                        pickPl = false
+                        pick = false
                     }) { Text("CREATE PLAYLIST AND ADD") }
                     val cur = vm.playlists.firstOrNull { it.id == vm.playlistSel }
                     if (cur != null) {
                         TextButton(onClick = {
                             vm.removeFromPlaylist(cur.id, s)
-                            pickPl = false
+                            pick = false
                         }) { Text("REMOVE FROM " + cur.name) }
                     }
+                    Label("OTHER", color = C.Dim, size = 11.sp, modifier = Modifier.padding(top = 6.dp))
+                    TextButton(onClick = {
+                        vm.loadSong(0, s)
+                        pick = false
+                    }) { Text("LOAD TO DECK A") }
+                    TextButton(onClick = {
+                        vm.loadSong(1, s)
+                        pick = false
+                    }) { Text("LOAD TO DECK B") }
+                    TextButton(onClick = {
+                        vm.enqueue(s)
+                        pick = false
+                    }) { Text("ADD TO QUEUE") }
                 }
             },
-            confirmButton = { TextButton(onClick = { pickPl = false }) { Text("CLOSE") } },
+            confirmButton = { TextButton(onClick = { pick = false }) { Text("CLOSE") } },
         )
     }
 }
 
 @Composable
-fun PlaylistBar(vm: MixerViewModel, compact: Boolean = false) {
+fun PlaylistBar(vm: MixerViewModel, compact: Boolean = false, modifier: Modifier = Modifier) {
     var creating by remember { mutableStateOf(false) }
     var managing by remember { mutableStateOf<Playlist?>(null) }
     val h = if (compact) 28.dp else 34.dp
     Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        modifier.horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -637,39 +618,39 @@ fun PlaylistBar(vm: MixerViewModel, compact: Boolean = false) {
 fun MixLibrary(vm: MixerViewModel, modifier: Modifier = Modifier) {
     var q by remember { mutableStateOf("") }
     val shape = RoundedCornerShape(14.dp)
-    BoxWithConstraints(modifier.clip(shape).background(C.Panel).border(1.dp, C.Border, shape).padding(6.dp)) {
-        val tall = maxHeight > 150.dp
-        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            PlaylistBar(vm, true)
-            if (tall) {
-                BasicTextField(
-                    value = q,
-                    onValueChange = { q = it },
-                    singleLine = true,
-                    textStyle = TextStyle(color = C.Text, fontSize = 13.sp),
-                    cursorBrush = SolidColor(C.Orange),
-                    modifier = Modifier.fillMaxWidth().height(30.dp).clip(RoundedCornerShape(6.dp)).background(C.Panel2).padding(horizontal = 8.dp, vertical = 6.dp),
-                    decorationBox = { inner ->
-                        Box {
-                            if (q.isEmpty()) Text("Search  -  hold a song and drag it to a deck, or double-tap to load", color = C.Dim, fontSize = 12.sp, maxLines = 1)
-                            inner()
-                        }
-                    },
-                )
-            }
-            val list = vm.visibleSongs().filter { q.isBlank() || it.title.contains(q, true) || it.artist.contains(q, true) }
-            if (list.isEmpty()) {
-                Label(
-                    "No songs here. Open the MUSIC tab to allow access, choose a folder or add files.",
-                    color = C.Dim,
-                    size = 11.sp,
-                    weight = FontWeight.Normal,
-                    maxLines = 3,
-                )
-            }
-            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                items(list, key = { it.uri.toString() }) { s -> SongRow(vm, s, true) }
-            }
+    Column(
+        modifier.clip(shape).background(C.Panel).border(1.dp, C.Border, shape).padding(6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            PlaylistBar(vm, true, Modifier.weight(1f))
+            BasicTextField(
+                value = q,
+                onValueChange = { q = it },
+                singleLine = true,
+                textStyle = TextStyle(color = C.Text, fontSize = 13.sp),
+                cursorBrush = SolidColor(C.Orange),
+                modifier = Modifier.width(150.dp).height(28.dp).clip(RoundedCornerShape(6.dp)).background(C.Panel2).padding(horizontal = 8.dp, vertical = 5.dp),
+                decorationBox = { inner ->
+                    Box {
+                        if (q.isEmpty()) Text("Search songs", color = C.Dim, fontSize = 12.sp, maxLines = 1)
+                        inner()
+                    }
+                },
+            )
+        }
+        val list = vm.visibleSongs().filter { q.isBlank() || it.title.contains(q, true) || it.artist.contains(q, true) }
+        if (list.isEmpty()) {
+            Label(
+                "No songs here. Open the MUSIC tab to allow access, choose a folder or add files.",
+                color = C.Dim,
+                size = 11.sp,
+                weight = FontWeight.Normal,
+                maxLines = 2,
+            )
+        }
+        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            items(list, key = { it.uri.toString() }) { s -> SongRow(vm, s, true) }
         }
     }
 }

@@ -40,6 +40,8 @@ class Deck(val id: Int) {
     @Volatile var echoOn: Boolean = false
     @Volatile var flangerOn: Boolean = false
     @Volatile var phaserOn: Boolean = false
+    @Volatile var braking: Boolean = false
+    @Volatile var brakeMul: Float = 1f
     @Volatile var eqLow: Float = 0f           // dB
     @Volatile var eqMid: Float = 0f
     @Volatile var eqHigh: Float = 0f
@@ -121,6 +123,9 @@ class Deck(val id: Int) {
         val flanger = flangerOn
         val phaser = phaserOn
 
+        val braking0 = braking
+        var bm = if (braking0) brakeMul else 1f
+        val bdec = 1f / (SR * 0.9f)
         var peak = 0f
         for (i in 0 until n) {
             var l = 0f
@@ -139,7 +144,19 @@ class Deck(val id: Int) {
                     val b = ip * 2
                     l = (p[b] + (p[b + 2] - p[b]) * fr) * (1f / 32768f)
                     r = (p[b + 1] + (p[b + 3] - p[b + 1]) * fr) * (1f / 32768f)
-                    pos += step
+                    pos += step * bm
+                    if (braking0) {
+                        val gb = min(1f, bm * 4f)
+                        l *= gb
+                        r *= gb
+                        bm -= bdec
+                        if (bm <= 0.03f) {
+                            play = false
+                            playing = false
+                            braking = false
+                            bm = 1f
+                        }
+                    }
                 }
             }
 
@@ -227,6 +244,7 @@ class Deck(val id: Int) {
             val m = max(abs(l), abs(r))
             if (m > peak) peak = m
         }
+        brakeMul = bm
         posFrames = pos
         level = peak
     }

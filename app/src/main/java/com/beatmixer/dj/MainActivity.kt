@@ -1,5 +1,12 @@
 package com.beatmixer.dj
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import android.Manifest
 import android.app.Activity
 import android.content.pm.PackageManager
@@ -177,8 +184,9 @@ fun BeatApp(vm: MixerViewModel = viewModel()) {
         if (vm.screen == Screen.TOOLS) vm.refreshRecordings()
     }
     var exitOpen by remember { mutableStateOf(false) }
+    var navOpen by remember { mutableStateOf(false) }
     BackHandler(enabled = true) {
-        if (vm.screen != Screen.MIX) vm.screen = Screen.MIX else exitOpen = true
+        if (navOpen) navOpen = false else if (vm.screen != Screen.MIX) vm.screen = Screen.MIX else exitOpen = true
     }
 
     // ---- dialogs
@@ -208,38 +216,53 @@ fun BeatApp(vm: MixerViewModel = viewModel()) {
             }
         }
 
-        if (wide) {
-            Row(Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 4.dp)) {
-                Column(
-                    Modifier.width(72.dp).fillMaxHeight(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    LogoMark(Modifier.width(64.dp).height(if (dense) 32.dp else 40.dp).padding(top = 4.dp))
-                    Spacer(Modifier.height(4.dp))
-                    for (s in Screen.entries) {
-                        NavItem(
-                            s, vm.screen == s, { vm.screen = s },
-                            Modifier.fillMaxWidth().weight(1f, fill = false),
-                        )
-                    }
-                }
-                Column(Modifier.weight(1f).fillMaxHeight().padding(start = 6.dp)) {
-                    TopBar(vm, clock, false, { eqOpen = true }, { nameOpen = true })
-                    content(Modifier.weight(1f).fillMaxWidth())
-                }
-            }
-        } else {
-            Column(Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 4.dp)) {
-                TopBar(vm, clock, true, { eqOpen = true }, { nameOpen = true })
-                Spacer(Modifier.height(6.dp))
+        val navT by animateFloatAsState(if (navOpen) 1f else 0f, tween(420), label = "nav")
+        val toggleNav = { navOpen = !navOpen }
+        Box(Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 4.dp)) {
+            Column(Modifier.fillMaxSize()) {
+                TopBar(vm, clock, !wide, { eqOpen = true }, { nameOpen = true }, toggleNav)
+                if (!wide) Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(if (wide) 4.dp else 0.dp))
                 content(Modifier.weight(1f).fillMaxWidth())
-                Row(
-                    Modifier.fillMaxWidth().height(56.dp).padding(top = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+            }
+            if (navOpen) {
+                Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { navOpen = false } })
+            }
+            if (navT > 0.001f) {
+                val screens = Screen.entries
+                val n = screens.size
+                val itemH = if (dense) 50.dp else 58.dp
+                Column(
+                    Modifier
+                        .padding(top = if (wide) 54.dp else 50.dp)
+                        .width(84.dp)
+                        .graphicsLayer { alpha = navT.coerceIn(0f, 1f) }
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(C.Panel)
+                        .border(1.dp, C.Border, RoundedCornerShape(14.dp))
+                        .verticalScroll(rememberScrollState())
+                        .padding(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
-                    for (s in Screen.entries) {
-                        NavItem(s, vm.screen == s, { vm.screen = s }, Modifier.weight(1f).fillMaxHeight())
+                    for ((i, s) in screens.withIndex()) {
+                        val p = (navT * 1.6f - i * 0.12f).coerceIn(0f, 1f)
+                        NavItem(
+                            s,
+                            vm.screen == s,
+                            {
+                                vm.screen = s
+                                navOpen = false
+                            },
+                            Modifier
+                                .fillMaxWidth()
+                                .height(itemH)
+                                .graphicsLayer {
+                                    translationY = -(1f - p) * (i * (itemH.toPx() + 2.dp.toPx()) + 40.dp.toPx())
+                                    alpha = p
+                                    scaleX = 0.4f + 0.6f * p
+                                    scaleY = 0.4f + 0.6f * p
+                                },
+                        )
                     }
                 }
             }
