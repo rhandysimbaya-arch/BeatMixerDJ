@@ -684,11 +684,116 @@ object DropSynth {
         },
     )
 
-    /** Short synth note used by the PLAY keyboard. */
+    /** Piano-like note used by the PLAY keyboard. */
     fun note(freqHz: Float): ShortArray {
-        val a = tone(0.9f, true, { freqHz }, { min(1f, it / 0.004f) * exp(-3.2f * it) })
-        val b = tone(0.9f, false, { freqHz * 2f }, { min(1f, it / 0.004f) * exp(-4.5f * it) })
-        for (i in a.indices) a[i] = a[i] * 0.55f + b[i] * 0.35f
-        return finish(a)
+        val sec = 1.6f
+        val parts = ArrayList<FloatArray>()
+        val mults = floatArrayOf(1f, 2f, 3f, 4f)
+        val amps = floatArrayOf(1f, 0.5f, 0.22f, 0.1f)
+        for (k in mults.indices) {
+            val m = mults[k]
+            if (freqHz * m > 9000f) continue
+            val decay = 3.2f + 2.2f * m
+            val p = tone(sec, false, { freqHz * m }, { min(1f, it * sec / 0.003f) * exp(-decay * it) })
+            for (i in p.indices) p[i] = p[i] * amps[k]
+            parts.add(p)
+        }
+        return finish(mix(*parts.toTypedArray()))
     }
+
+    private fun hp(x: FloatArray): FloatArray {
+        val o = FloatArray(x.size)
+        var prev = 0f
+        for (i in x.indices) {
+            o[i] = x[i] - prev * 0.95f
+            prev = x[i]
+        }
+        return o
+    }
+
+    private fun sc(a: FloatArray, g: Float): FloatArray {
+        for (i in a.indices) a[i] = a[i] * g
+        return a
+    }
+
+    private fun tom(base: Float, seed: Int): ShortArray = finish(
+        mix(
+            tone(0.5f, false, { base * (1f + 0.6f * exp(-9f * it)) }, { min(1f, it / 0.002f) * exp(-5.5f * it) }),
+            sc(noise(0.02f, seed) { exp(-10f * it) }, 0.2f),
+        ),
+    )
+
+    /** A complete drum kit, generated with no bundled audio. */
+    val drums: List<DropDef> = listOf(
+        DropDef("KICK") {
+            finish(
+                mix(
+                    tone(0.45f, false, { 48f + 130f * exp(-14f * it) }, { min(1f, it / 0.002f) * exp(-6.5f * it) }),
+                    sc(noise(0.02f, 5) { exp(-8f * it) }, 0.35f),
+                ),
+            )
+        },
+        DropDef("SNARE") {
+            finish(
+                mix(
+                    sc(tone(0.25f, false, { 185f }, { min(1f, it / 0.001f) * exp(-12f * it) }), 0.7f),
+                    sc(hp(noise(0.25f, 7) { exp(-9f * it) }), 0.9f),
+                ),
+            )
+        },
+        DropDef("RIMSHOT") {
+            finish(
+                mix(
+                    tone(0.08f, false, { 1750f }, { exp(-25f * it) }),
+                    tone(0.08f, false, { 480f }, { exp(-20f * it) }),
+                    sc(noise(0.04f, 9) { exp(-20f * it) }, 0.4f),
+                ),
+            )
+        },
+        DropDef("CLAP") {
+            finish(
+                hp(
+                    concat(
+                        noise(0.012f, 11) { exp(-30f * it) },
+                        silence(0.008f),
+                        noise(0.012f, 12) { exp(-30f * it) },
+                        silence(0.008f),
+                        noise(0.15f, 13) { exp(-12f * it) },
+                    ),
+                ),
+            )
+        },
+        DropDef("HAT CLOSED") {
+            finish(
+                mix(
+                    hp(noise(0.09f, 21) { exp(-40f * it) }),
+                    sc(tone(0.09f, false, { 8200f }, { exp(-35f * it) }), 0.15f),
+                ),
+            )
+        },
+        DropDef("HAT OPEN") { finish(hp(noise(0.45f, 22) { exp(-7f * it) })) },
+        DropDef("TOM HIGH") { tom(220f, 41) },
+        DropDef("TOM MID") { tom(165f, 42) },
+        DropDef("TOM LOW") { tom(120f, 43) },
+        DropDef("FLOOR TOM") { tom(82f, 44) },
+        DropDef("CRASH") {
+            finish(
+                mix(
+                    hp(noise(1.6f, 31) { min(1f, it / 0.003f) * exp(-3f * it) }),
+                    sc(tone(1.6f, false, { 3400f }, { exp(-3.5f * it) }), 0.12f),
+                    sc(tone(1.6f, false, { 5100f }, { exp(-3.5f * it) }), 0.1f),
+                ),
+            )
+        },
+        DropDef("RIDE") {
+            finish(
+                mix(
+                    sc(hp(noise(1.0f, 32) { exp(-5f * it) }), 0.5f),
+                    sc(tone(1.0f, false, { 3900f }, { exp(-4f * it) }), 0.4f),
+                    sc(tone(1.0f, false, { 5800f }, { exp(-4f * it) }), 0.3f),
+                    sc(tone(1.0f, false, { 2700f }, { exp(-4f * it) }), 0.2f),
+                ),
+            )
+        },
+    )
 }

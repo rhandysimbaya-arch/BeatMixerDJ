@@ -1,5 +1,10 @@
 package com.beatmixer.dj
 
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import kotlinx.coroutines.withTimeoutOrNull
+import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.animation.core.RepeatMode
@@ -170,15 +175,34 @@ fun PadButton(
             .background(if (active) activeFill else fill)
             .border(1.dp, accent.copy(alpha = 0.75f), shape)
             .pointerInput(Unit) {
-                detectTapGestures(
-                    onPress = {
-                        press?.invoke()
-                        tryAwaitRelease()
-                        release?.invoke()
-                    },
-                    onLongPress = { longClick?.invoke() },
-                    onTap = { click?.invoke() },
-                )
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    press?.invoke()
+                    var up: PointerInputChange? = null
+                    var longFired = false
+                    if (longClick != null) {
+                        var timedOut = true
+                        val r = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                            val u = waitForUpOrCancellation()
+                            timedOut = false
+                            u
+                        }
+                        if (timedOut) {
+                            longFired = true
+                            longClick?.invoke()
+                            up = waitForUpOrCancellation()
+                        } else {
+                            up = r
+                        }
+                    } else {
+                        up = waitForUpOrCancellation()
+                    }
+                    release?.invoke()
+                    if (up != null && !longFired) {
+                        up.consume()
+                        click?.invoke()
+                    }
+                }
             },
         contentAlignment = Alignment.Center,
         content = content,
@@ -549,3 +573,12 @@ class DragCtl {
 }
 
 val LocalDrag = staticCompositionLocalOf<DragCtl?> { null }
+
+/** Fires [action] the instant a finger goes down (no waiting for tap detection). */
+fun Modifier.onDown(key: Any?, action: () -> Unit): Modifier = pointerInput(key) {
+    awaitEachGesture {
+        awaitFirstDown(requireUnconsumed = false)
+        action()
+        waitForUpOrCancellation()
+    }
+}

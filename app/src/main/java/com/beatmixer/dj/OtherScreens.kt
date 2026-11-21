@@ -1,5 +1,8 @@
 package com.beatmixer.dj
 
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalDensity
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
@@ -48,6 +51,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -739,68 +743,126 @@ private fun DeckPerformance(vm: MixerViewModel, i: Int, modifier: Modifier) {
     }
 }
 
+private fun isBlackKey(m: Int): Boolean = (m % 12) in listOf(1, 3, 6, 8, 10)
+
 @Composable
-private fun Piano(vm: MixerViewModel, octave: Int, modifier: Modifier) {
-    val whites = listOf(0, 2, 4, 5, 7, 9, 11, 12)
-    val blacks = listOf(0 to 1, 1 to 3, 3 to 6, 4 to 8, 5 to 10)
-    BoxWithConstraints(modifier) {
-        val w = maxWidth / 8
-        Row(Modifier.fillMaxSize()) {
-            for (semi in whites) {
-                Box(
-                    Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        .padding(1.dp)
-                        .clip(RoundedCornerShape(bottomStart = 8.dp, bottomEnd = 8.dp))
-                        .background(Color(0xFFEDEDED))
-                        .pointerInput(semi, octave) {
-                            detectTapGestures(onPress = { vm.playNote(semi, octave) })
-                        },
-                )
+private fun Keyboard(vm: MixerViewModel, modifier: Modifier) {
+    val kw = 44.dp
+    val bw = 28.dp
+    val whites = remember { (21..108).filter { !isBlackKey(it) } }
+    val blacks = remember {
+        (21..108).filter { isBlackKey(it) }.map { m -> m to (21 until m).count { !isBlackKey(it) } }
+    }
+    val scroll = rememberScrollState()
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    fun whiteBefore(m: Int): Int = (21 until m).count { !isBlackKey(it) }
+    LaunchedEffect(Unit) {
+        scroll.scrollTo(with(density) { (kw * whiteBefore(48)).roundToPx() })
+    }
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Label("88 KEYS - swipe sideways. JUMP TO", color = C.Dim, size = 11.sp)
+            for (oct in 1..7) {
+                PadButton(Modifier.height(32.dp), accent = C.Green, onClick = {
+                    scope.launch { scroll.animateScrollTo(with(density) { (kw * whiteBefore(12 * (oct + 1))).roundToPx() }) }
+                }) { Label("C" + oct, color = C.Green, size = 12.sp, modifier = Modifier.padding(horizontal = 10.dp)) }
             }
         }
-        for ((idx, semi) in blacks) {
-            Box(
-                Modifier
-                    .offset(x = w * (idx + 1) - w * 0.3f)
-                    .width(w * 0.6f)
-                    .fillMaxHeight(0.6f)
-                    .clip(RoundedCornerShape(bottomStart = 6.dp, bottomEnd = 6.dp))
-                    .background(Color(0xFF14151A))
-                    .border(1.dp, Color(0xFF3A3D48), RoundedCornerShape(bottomStart = 6.dp, bottomEnd = 6.dp))
-                    .pointerInput(semi, octave) {
-                        detectTapGestures(onPress = { vm.playNote(semi, octave) })
-                    },
-            )
+        Box(Modifier.weight(1f).fillMaxWidth().horizontalScroll(scroll)) {
+            Box(Modifier.width(kw * whites.size).fillMaxHeight()) {
+                Row(Modifier.fillMaxSize()) {
+                    for (m in whites) {
+                        Box(
+                            Modifier
+                                .width(kw)
+                                .fillMaxHeight()
+                                .padding(horizontal = 1.dp)
+                                .clip(RoundedCornerShape(bottomStart = 8.dp, bottomEnd = 8.dp))
+                                .background(Color(0xFFEDEDED))
+                                .onDown(m) { vm.playNote(m) },
+                            contentAlignment = Alignment.BottomCenter,
+                        ) {
+                            if (m % 12 == 0) {
+                                Text("C" + (m / 12 - 1), color = Color(0xFF555555), fontSize = 10.sp, modifier = Modifier.padding(bottom = 4.dp))
+                            }
+                        }
+                    }
+                }
+                for ((m, wb) in blacks) {
+                    Box(
+                        Modifier
+                            .offset(x = kw * wb - bw / 2)
+                            .width(bw)
+                            .fillMaxHeight(0.6f)
+                            .clip(RoundedCornerShape(bottomStart = 6.dp, bottomEnd = 6.dp))
+                            .background(Color(0xFF14151A))
+                            .border(1.dp, Color(0xFF3A3D48), RoundedCornerShape(bottomStart = 6.dp, bottomEnd = 6.dp))
+                            .onDown(m) { vm.playNote(m) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DrumKit(vm: MixerViewModel, wide: Boolean, modifier: Modifier) {
+    val names = DropSynth.drums.map { it.name }
+    val cols = if (wide) 4 else 3
+    val colors = listOf(C.Orange, C.Blue, C.Green, C.Yellow)
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        for (row in names.indices.chunked(cols)) {
+            Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                for (i in row) {
+                    val col = colors[i % 4]
+                    PadButton(
+                        Modifier.weight(1f).fillMaxHeight(),
+                        accent = col,
+                        onPress = { vm.playDrum(i) },
+                    ) { Label(names[i], color = col, size = 14.sp) }
+                }
+                repeat(cols - row.size) { Spacer(Modifier.weight(1f)) }
+            }
         }
     }
 }
 
 @Composable
 fun PlayScreen(vm: MixerViewModel, wide: Boolean, modifier: Modifier = Modifier) {
-    var octave by remember { mutableIntStateOf(1) }
+    var tab by remember { mutableIntStateOf(0) }
     Column(modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (wide) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                DeckPerformance(vm, 0, Modifier.weight(1f))
-                DeckPerformance(vm, 1, Modifier.weight(1f))
-            }
-        } else {
-            Column(Modifier.verticalScroll(rememberScrollState()).weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                DeckPerformance(vm, 0, Modifier)
-                DeckPerformance(vm, 1, Modifier)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            val names = listOf("HOT CUES / LOOPS", "PIANO", "DRUMS")
+            for (i in names.indices) {
+                PadButton(
+                    Modifier.height(36.dp),
+                    accent = C.Green,
+                    active = tab == i,
+                    activeFill = C.Green.copy(alpha = 0.28f),
+                    onClick = { tab = i },
+                ) { Label(names[i], color = if (tab == i) C.Text else C.Green, size = 12.sp, modifier = Modifier.padding(horizontal = 10.dp)) }
             }
         }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Heading("KEYBOARD", C.Green)
-            Spacer(Modifier.weight(1f))
-            Label("OCTAVE", color = C.Dim, size = 11.sp)
-            PadButton(Modifier.size(34.dp), accent = C.Dim, onClick = { if (octave > 0) octave-- }) { Label("-", size = 16.sp) }
-            Label("${octave + 3}", color = C.Text, size = 14.sp)
-            PadButton(Modifier.size(34.dp), accent = C.Dim, onClick = { if (octave < 2) octave++ }) { Label("+", size = 16.sp) }
+        when (tab) {
+            0 -> Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (wide) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        DeckPerformance(vm, 0, Modifier.weight(1f))
+                        DeckPerformance(vm, 1, Modifier.weight(1f))
+                    }
+                } else {
+                    DeckPerformance(vm, 0, Modifier)
+                    DeckPerformance(vm, 1, Modifier)
+                }
+            }
+            1 -> Keyboard(vm, Modifier.weight(1f).fillMaxWidth())
+            else -> DrumKit(vm, wide, Modifier.weight(1f).fillMaxWidth())
         }
-        Piano(vm, octave, Modifier.weight(1f).fillMaxWidth().heightIn(min = 90.dp))
     }
 }
 

@@ -245,13 +245,13 @@ class DropVoice {
 /** Streams the mixed output of two decks, drops and the microphone to an AudioTrack. */
 class MixEngine {
     companion object {
-        const val BLOCK = 512
+        const val BLOCK = 256
         private const val MIC_MASK = 32767L
         private const val HALF_PI = 1.5707964f
     }
 
     val decks = arrayOf(Deck(0), Deck(1))
-    val voices = Array(8) { DropVoice() }
+    val voices = Array(16) { DropVoice() }
 
     @Volatile var crossfader = 0.5f   // 0 = deck A, 1 = deck B
     @Volatile var master = 0.85f
@@ -288,7 +288,7 @@ class MixEngine {
     }
 
     fun triggerDrop(sample: ShortArray, gain: Float = 1f) {
-        val v = voices.firstOrNull { it.data == null } ?: voices[0]
+        val v = voices.firstOrNull { it.data == null } ?: voices.maxByOrNull { it.pos } ?: voices[0]
         v.pos = 0
         v.gain = gain
         v.data = sample
@@ -357,7 +357,7 @@ class MixEngine {
     private fun loop() {
         Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
         val minBuf = AudioTrack.getMinBufferSize(SR, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
-        val bufBytes = max(minBuf, BLOCK * 4 * 4)
+        val bufBytes = max(minBuf, BLOCK * 4 * 8)
         val at = AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
@@ -376,6 +376,13 @@ class MixEngine {
             .setTransferMode(AudioTrack.MODE_STREAM)
             .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
             .build()
+        var curFrames = BLOCK * 2
+        try {
+            at.setBufferSizeInFrames(curFrames)
+            curFrames = at.bufferSizeInFrames
+        } catch (_: Throwable) {
+        }
+        var lastUnderrun = 0
         at.play()
 
         val aL = FloatArray(BLOCK)
@@ -468,6 +475,17 @@ class MixEngine {
 
             recorder?.write(out.copyOf())
             at.write(out, 0, out.size)
+            val ur = at.underrunCount
+            if (ur > lastUnderrun) {
+                lastUnderrun = ur
+                if (curFrames < BLOCK * 8) {
+                    try {
+                        at.setBufferSizeInFrames(curFrames + BLOCK)
+                        curFrames = at.bufferSizeInFrames
+                    } catch (_: Throwable) {
+                    }
+                }
+            }
         }
         try {
             at.stop()

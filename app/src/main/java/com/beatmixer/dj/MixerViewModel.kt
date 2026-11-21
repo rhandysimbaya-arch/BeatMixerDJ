@@ -122,7 +122,6 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
     private var transitionJob: Job? = null
     private var forceNext = false
     private var mcWasMicOn = false
-    private val noteCache = HashMap<Int, ShortArray>()
 
     private val am = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private val deviceCb = object : AudioDeviceCallback() {
@@ -143,6 +142,7 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
         refreshLibrary()
         refreshRecordings()
         initDrops()
+        initSounds()
         viewModelScope.launch {
             while (true) {
                 tick()
@@ -391,13 +391,29 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun playNote(semitone: Int, octave: Int) {
-        val key = octave * 100 + semitone
-        val s = noteCache.getOrPut(key) {
-            val f = 130.81f * 2f.pow(octave.toFloat()) * 2f.pow(semitone / 12f)
-            DropSynth.note(f)
+    private val noteSamples = arrayOfNulls<ShortArray>(88)
+    private val drumSamples = arrayOfNulls<ShortArray>(DropSynth.drums.size)
+
+    private fun midiFreq(m: Int): Float = 440f * 2f.pow((m - 69) / 12f)
+
+    private fun initSounds() {
+        viewModelScope.launch(Dispatchers.Default) {
+            DropSynth.drums.forEachIndexed { i, d -> drumSamples[i] = d.gen() }
+            for (m in 21..108) noteSamples[m - 21] = DropSynth.note(midiFreq(m))
         }
+    }
+
+    fun playNote(midi: Int) {
+        val i = midi - 21
+        if (i !in 0..87) return
+        val s = noteSamples[i] ?: DropSynth.note(midiFreq(midi)).also { noteSamples[i] = it }
         engine.triggerDrop(s, 0.9f)
+    }
+
+    fun playDrum(i: Int) {
+        if (i !in drumSamples.indices) return
+        val s = drumSamples[i] ?: DropSynth.drums[i].gen().also { drumSamples[i] = it }
+        engine.triggerDrop(s, 1f)
     }
 
     // ---------- library
