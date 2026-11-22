@@ -290,9 +290,11 @@ fun DropsScreen(vm: MixerViewModel, modifier: Modifier = Modifier) {
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(value = text, onValueChange = { text = it }, singleLine = true, label = { Text("Name") })
-                    Label("CATEGORY", color = C.Dim, size = 11.sp)
-                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        for (t in vm.categories.toList()) CatChip(t, C.Blue, e.category == t) { vm.setDropCategory(e.index, t) }
+                    if (!e.long) {
+                        Label("CATEGORY", color = C.Dim, size = 11.sp)
+                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            for (t in vm.categories.toList().filter { it != LONG_CATEGORY }) CatChip(t, C.Blue, e.category == t) { vm.setDropCategory(e.index, t) }
+                        }
                     }
                     TextButton(onClick = { pick.launch(arrayOf("audio/*")) }) { Text("REPLACE SOUND WITH A FILE") }
                     if (e.builtin) {
@@ -332,6 +334,14 @@ fun DropsScreen(vm: MixerViewModel, modifier: Modifier = Modifier) {
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         for (t in vm.categories.toList()) CatChip(t, C.Blue, nc == t) { nc = t }
                     }
+                    Label(
+                        if (nc == LONG_CATEGORY) "FULL LENGTH plays the whole file with no 8 second limit. Tap the pad again to stop it."
+                        else "Drops use up to 8 seconds of the file. Choose FULL LENGTH to play a whole file.",
+                        color = C.Dim,
+                        size = 11.sp,
+                        weight = FontWeight.Normal,
+                        maxLines = 4,
+                    )
                     Label("Add or remove categories in Mixer settings (Tools).", color = C.Dim, size = 11.sp, weight = FontWeight.Normal, maxLines = 3)
                 }
             },

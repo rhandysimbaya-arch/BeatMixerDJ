@@ -38,10 +38,15 @@ class DropItem(val index: Int, val defaultName: String, val builtin: Boolean = t
     var fav by mutableStateOf(true)
     var custom by mutableStateOf(false)
     var category by mutableStateOf("")
+    var long by mutableStateOf(false)
+    var uri by mutableStateOf("")
 
     @Volatile
     var sample: ShortArray? = null
 }
+
+/** Drops in this category play the whole file (no 8 second limit). Tap again to stop. */
+const val LONG_CATEGORY = "FULL LENGTH"
 
 val DEFAULT_DROP_CATEGORIES = listOf("HORNS", "FX", "BASS", "PERCUSSION", "VOICE")
 

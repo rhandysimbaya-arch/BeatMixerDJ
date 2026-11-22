@@ -260,6 +260,32 @@ class DropVoice {
     @Volatile var gain: Float = 1f
 }
 
+/** Plays one long audio file (event music, announcements) straight to the output. */
+class LongPlayer {
+    @Volatile var track: Track? = null
+    @Volatile var playing: Boolean = false
+    @Volatile var pos: Int = 0
+
+    fun mixInto(l: FloatArray, r: FloatArray, n: Int) {
+        val t = track
+        if (!playing || t == null) return
+        var p = pos
+        val pcm = t.pcm
+        var i = 0
+        while (i < n) {
+            if (p >= t.readyFrames) {
+                if (t.complete) playing = false
+                break
+            }
+            l[i] += pcm[p * 2] / 32768f
+            r[i] += pcm[p * 2 + 1] / 32768f
+            p++
+            i++
+        }
+        pos = p
+    }
+}
+
 /** Streams the mixed output of two decks, drops and the microphone to an AudioTrack. */
 class MixEngine {
     companion object {
@@ -304,6 +330,8 @@ class MixEngine {
         }
         thread = null
     }
+
+    val longPlayer = LongPlayer()
 
     fun triggerDrop(sample: ShortArray, gain: Float = 1f) {
         val v = voices.firstOrNull { it.data == null } ?: voices.maxByOrNull { it.pos } ?: voices[0]
@@ -408,6 +436,8 @@ class MixEngine {
         val bL = FloatArray(BLOCK)
         val bR = FloatArray(BLOCK)
         val dropBuf = FloatArray(BLOCK)
+        val longL = FloatArray(BLOCK)
+        val longR = FloatArray(BLOCK)
         val micBuf = FloatArray(BLOCK)
         val out = ShortArray(BLOCK * 2)
 
@@ -423,6 +453,9 @@ class MixEngine {
 
             // drops
             java.util.Arrays.fill(dropBuf, 0f)
+            java.util.Arrays.fill(longL, 0f)
+            java.util.Arrays.fill(longR, 0f)
+            longPlayer.mixInto(longL, longR, BLOCK)
             for (v in voices) {
                 val d = v.data ?: continue
                 var pp = v.pos
@@ -473,8 +506,8 @@ class MixEngine {
                 val gM = prevMaster + (tMaster - prevMaster) * k
                 val gMic = prevMic + (tMic - prevMic) * k
                 val m = micBuf[i] * gMic
-                val sl = (aL[i] * gA + bL[i] * gB) * gD + dropBuf[i] + m
-                val sr = (aR[i] * gA + bR[i] * gB) * gD + dropBuf[i] + m
+                val sl = (aL[i] * gA + bL[i] * gB) * gD + dropBuf[i] + longL[i] + m
+                val sr = (aR[i] * gA + bR[i] * gB) * gD + dropBuf[i] + longR[i] + m
                 val oL = softClip(sl * gM)
                 val oR = softClip(sr * gM)
                 if (abs(oL) > pkL) pkL = abs(oL)

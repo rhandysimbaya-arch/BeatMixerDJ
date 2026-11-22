@@ -55,6 +55,9 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
     val loopSize = mutableStateListOf(4f, 4f)
     val playlists = mutableStateListOf<Playlist>()
     var playlistSel by mutableStateOf(-1)
+    var longPlayingId by mutableStateOf(-1)
+    private var longTrackId = -1
+    private var longLoading = false
     var miniWide by mutableStateOf(false)
     var miniPortrait by mutableStateOf(true)
 
@@ -252,6 +255,10 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun removeCategory(name: String) {
+        if (name == LONG_CATEGORY) {
+            toast("FULL LENGTH is a built-in category")
+            return
+        }
         categories.remove(name)
         saveCategories()
     }
@@ -266,6 +273,7 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
         val cs = prefs.getString("dropCats", null)
         categories.clear()
         if (cs == null) categories.addAll(DEFAULT_DROP_CATEGORIES) else categories.addAll(cs.split("\n").filter { it.isNotBlank() })
+        if (LONG_CATEGORY !in categories) categories.add(LONG_CATEGORY)
         for (d in drops.toList()) {
             val sc = prefs.getString("dropCat_" + d.index, null)
             if (sc != null) d.category = sc
@@ -276,6 +284,8 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
             it.name = it.defaultName
             it.category = prefs.getString("dropCat_$id", "") ?: ""
             it.custom = true
+            it.long = prefs.getBoolean("udLong_$id", false)
+            it.uri = prefs.getString("udUri_$id", "") ?: ""
             drops.add(it)
         }
         viewModelScope.launch {
@@ -290,6 +300,7 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
                 if (nm != null) item.name = nm
             }
             for (item in drops.toList()) {
+                if (item.long) continue
                 val u = (if (item.builtin) prefs.getString("dropUri_" + item.index, null) else prefs.getString("udUri_" + item.index, null)) ?: continue
                 val custom = withContext(Dispatchers.Default) { decodeDrop(Uri.parse(u)) }
                 if (custom != null) {
@@ -315,8 +326,79 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun fireDrop(idx: Int) {
-        val s = drop(idx)?.sample ?: return
+        val d = drop(idx) ?: return
+        if (d.long) {
+            toggleLong(d)
+            return
+        }
+        val s = d.sample ?: return
         engine.triggerDrop(s, 1f)
+    }
+
+    fun toggleLong(item: DropItem) {
+        val lp = engine.longPlayer
+        if (longPlayingId == item.index) {
+            lp.playing = false
+            longPlayingId = -1
+            return
+        }
+        lp.playing = false
+        longPlayingId = -1
+        if (longTrackId == item.index && lp.track != null) {
+            lp.pos = 0
+            lp.playing = true
+            longPlayingId = item.index
+            return
+        }
+        if (longLoading || item.uri.isBlank()) return
+        longLoading = true
+        toast("Loading " + item.name + "...")
+        viewModelScope.launch {
+            val t = withContext(Dispatchers.IO) {
+                try {
+                    Decoder.startTrack(ctx, Song(Uri.parse(item.uri), item.name, "", 0L)) { }
+                } catch (e: Throwable) {
+                    null
+                }
+            }
+            longLoading = false
+            if (t == null) {
+                toast("Could not play that file")
+                return@launch
+            }
+            lp.track?.cancelled = true
+            lp.playing = false
+            lp.track = t
+            lp.pos = 0
+            lp.playing = true
+            longTrackId = item.index
+            longPlayingId = item.index
+        }
+    }
+
+    fun addLongDrop(name: String, uri: Uri) {
+        try {
+            ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (_: Exception) {
+        }
+        val id = prefs.getInt("nextDropId", 1000)
+        val item = DropItem(id, name.trim().ifEmpty { "LONG AUDIO" }, false)
+        item.name = item.defaultName
+        item.category = LONG_CATEGORY
+        item.custom = true
+        item.long = true
+        item.uri = uri.toString()
+        drops.add(item)
+        val ids = (prefs.getString("userDropIds", null)?.split(",")?.filter { it.isNotBlank() } ?: emptyList()) + id.toString()
+        prefs.edit()
+            .putInt("nextDropId", id + 1)
+            .putString("userDropIds", ids.joinToString(","))
+            .putString("udName_$id", item.name)
+            .putString("udUri_$id", uri.toString())
+            .putString("dropCat_$id", LONG_CATEGORY)
+            .putBoolean("udLong_$id", true)
+            .apply()
+        toast("Added. Tap it to play the full file, tap again to stop")
     }
 
     fun toggleFav(idx: Int) {
@@ -338,6 +420,14 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
                 ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             } catch (_: Exception) {
             }
+            val d0 = drop(idx)
+            if (d0 != null && d0.long) {
+                d0.uri = uri.toString()
+                prefs.edit().putString("udUri_$idx", uri.toString()).apply()
+                if (longTrackId == idx) longTrackId = -1
+                toast("Audio file replaced")
+                return@launch
+            }
             val s = withContext(Dispatchers.Default) { decodeDrop(uri) }
             val d = drop(idx)
             if (s == null || d == null) {
@@ -352,6 +442,10 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun addDrop(name: String, category: String, uri: Uri) {
+        if (category == LONG_CATEGORY) {
+            addLongDrop(name, uri)
+            return
+        }
         viewModelScope.launch {
             try {
                 ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -384,9 +478,13 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
     fun deleteDrop(idx: Int) {
         val d = drop(idx) ?: return
         if (d.builtin) return
+        if (longPlayingId == idx) {
+            engine.longPlayer.playing = false
+            longPlayingId = -1
+        }
         drops.remove(d)
         val ids = (prefs.getString("userDropIds", null)?.split(",")?.filter { it.isNotBlank() && it != idx.toString() } ?: emptyList())
-        prefs.edit().putString("userDropIds", ids.joinToString(",")).remove("udName_$idx").remove("udUri_$idx").remove("dropCat_$idx").apply()
+        prefs.edit().putString("userDropIds", ids.joinToString(",")).remove("udName_$idx").remove("udUri_$idx").remove("dropCat_$idx").remove("udLong_$idx").apply()
     }
 
     fun resetDrop(idx: Int) {
@@ -1103,6 +1201,8 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
             exitLoop(i)
         }
         for (v in engine.voices) v.data = null
+        engine.longPlayer.playing = false
+        longPlayingId = -1
         for (i in 0..1) refreshDeckUi(i)
     }
 
@@ -1251,6 +1351,7 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
             b.track != null -> 1
             else -> -1
         }
+        if (longPlayingId >= 0 && !engine.longPlayer.playing) longPlayingId = -1
         nowDeck = if (live >= 0 && engine.decks[live].track != null) live else -1
         nowPlaying = if (live < 0) {
             "Nothing playing"

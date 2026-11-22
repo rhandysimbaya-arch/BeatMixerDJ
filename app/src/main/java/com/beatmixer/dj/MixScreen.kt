@@ -696,9 +696,12 @@ private fun dropAccent(k: Int): Color = when (k) { 0 -> C.Orange; 1 -> C.Green; 
 @Composable
 fun DropPad(item: DropItem, vm: MixerViewModel, modifier: Modifier = Modifier, onLongClick: (() -> Unit)? = null) {
     val k = item.index % 3
+    val playingLong = item.long && vm.longPlayingId == item.index
     PadButton(
         modifier,
         accent = dropAccent(k),
+        active = playingLong,
+        activeFill = dropAccent(k).copy(alpha = 0.45f),
         fill = dropBg[k],
         onPress = { vm.fireDrop(item.index) },
         onLongClick = onLongClick,
@@ -706,7 +709,7 @@ fun DropPad(item: DropItem, vm: MixerViewModel, modifier: Modifier = Modifier, o
         Box(
             Modifier.align(Alignment.TopCenter).fillMaxWidth().height(3.dp).background(dropAccent(k)),
         )
-        Label(item.name, color = C.Text, size = 14.sp)
+        Label((if (item.long) (if (playingLong) "\u25A0 " else "\u25B6 ") else "") + item.name, color = C.Text, size = 14.sp)
         Icon(
             if (item.fav) Icons.Filled.Star else Icons.Filled.StarBorder,
             null,
