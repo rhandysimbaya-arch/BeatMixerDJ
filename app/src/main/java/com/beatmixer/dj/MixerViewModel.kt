@@ -41,6 +41,9 @@ import kotlin.math.roundToInt
 class MixerViewModel(app: Application) : AndroidViewModel(app) {
     private val ctx: Context = app.applicationContext
     private val prefs = ctx.getSharedPreferences("beatmixer", Context.MODE_PRIVATE)
+    private val noteSamples = arrayOfNulls<ShortArray>(88)
+    private val drumSamples = arrayOfNulls<ShortArray>(DropSynth.drums.size)
+
     private val safe = kotlinx.coroutines.CoroutineExceptionHandler { _, e -> android.util.Log.e("BeatMixer", "background task failed", e) }
 
     val engine = MixEngine()
@@ -527,9 +530,6 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
             prefs.edit().remove("dropUri_$idx").remove("dropName_$idx").apply()
         }
     }
-
-    private val noteSamples = arrayOfNulls<ShortArray>(88)
-    private val drumSamples = arrayOfNulls<ShortArray>(DropSynth.drums.size)
 
     private fun midiFreq(m: Int): Float = 440f * 2f.pow((m - 69) / 12f)
 
