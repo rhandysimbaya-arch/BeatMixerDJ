@@ -265,6 +265,7 @@ class LongPlayer {
     @Volatile var track: Track? = null
     @Volatile var playing: Boolean = false
     @Volatile var pos: Int = 0
+    @Volatile var gain: Float = 1f
 
     fun mixInto(l: FloatArray, r: FloatArray, n: Int) {
         val t = track
@@ -277,8 +278,8 @@ class LongPlayer {
                 if (t.complete) playing = false
                 break
             }
-            l[i] += pcm[p * 2] / 32768f
-            r[i] += pcm[p * 2 + 1] / 32768f
+            l[i] += pcm[p * 2] / 32768f * gain
+            r[i] += pcm[p * 2 + 1] / 32768f * gain
             p++
             i++
         }

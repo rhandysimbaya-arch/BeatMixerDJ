@@ -47,6 +47,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.res.painterResource
@@ -60,7 +62,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.exp
+import kotlin.math.floor
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
@@ -303,9 +308,31 @@ fun Vinyl(deck: Deck, accent: Color, clock: UiClock, modifier: Modifier = Modifi
     val tm = rememberTextMeasurer()
     Canvas(modifier.aspectRatio(1f)) {
         clock.tick
-        val r = size.minDimension / 2f
+        val outer = size.minDimension / 2f
+        val r = outer * 0.84f
         val c = center
         val angle = ((deck.posFrames / SR * 200.0) % 360.0).toFloat()
+        // sound waves outside the ring, driven by the beat of the track
+        val wtr = deck.track
+        if (deck.playing && wtr != null) {
+            val beats = deckBeats(deck)
+            val ph = (beats - floor(beats)).toFloat()
+            val kick = if (wtr.bpm > 20f) exp(-5f * ph) else 0.5f
+            val lvl = deck.level.coerceIn(0f, 1f)
+            val room = outer - r - 2.dp.toPx()
+            val n = 56
+            for (k in 0 until n) {
+                val a = k * 2.0 * PI / n
+                val wob = 0.55f + 0.45f * abs(sin(k * 1.7 + beats * 3.0)).toFloat()
+                val f = (0.12f + 0.88f * lvl * (0.45f + 0.55f * kick) * wob).coerceIn(0.08f, 1f)
+                val s = Offset(c.x + cos(a).toFloat() * (r + 2.dp.toPx()), c.y + sin(a).toFloat() * (r + 2.dp.toPx()))
+                val e = Offset(c.x + cos(a).toFloat() * (r + 2.dp.toPx() + room * f), c.y + sin(a).toFloat() * (r + 2.dp.toPx() + room * f))
+                drawLine(accent.copy(alpha = 0.45f + 0.55f * f), s, e, strokeWidth = 2.2.dp.toPx(), cap = StrokeCap.Round)
+            }
+            if (wtr.bpm > 20f) {
+                drawCircle(accent.copy(alpha = 0.5f * (1f - ph)), r + 2.dp.toPx() + room * ph, style = Stroke(1.5.dp.toPx()))
+            }
+        }
         if (C.Ring) {
             val tr = deck.track
             val total = max(1, tr?.frames ?: 1)
@@ -580,5 +607,69 @@ fun Modifier.onDown(key: Any?, action: () -> Unit): Modifier = pointerInput(key)
         awaitFirstDown(requireUnconsumed = false)
         action()
         waitForUpOrCancellation()
+    }
+}
+
+
+/** Beats elapsed in the track (continuous), 0 when the BPM is unknown. */
+fun deckBeats(d: Deck): Double {
+    val t = d.track ?: return 0.0
+    if (t.bpm <= 20f) return d.posFrames / SR * 2.0
+    return (d.posFrames / SR - t.beatOffset) * t.bpm / 60.0
+}
+
+/** The RB mascot: bounces, sways and squashes on the beat of the playing deck. */
+@Composable
+fun DjBee(engine: MixEngine, clock: UiClock, modifier: Modifier = Modifier) {
+    val img = ImageBitmap.imageResource(R.drawable.rb_bee)
+    Canvas(modifier.aspectRatio(1f)) {
+        clock.tick
+        val d0 = engine.decks[0]
+        val d1 = engine.decks[1]
+        val a = d0.playing && d0.track != null
+        val b = d1.playing && d1.track != null
+        val d = when {
+            a && b -> if (d0.level >= d1.level) d0 else d1
+            a -> d0
+            b -> d1
+            else -> null
+        }
+        val w = size.width
+        val h = size.height
+        var kick = 0f
+        var sway = 0f
+        var energy = 0f
+        if (d != null) {
+            val beats = deckBeats(d)
+            val ph = (beats - floor(beats)).toFloat()
+            kick = exp(-5f * ph)
+            sway = sin(PI * beats).toFloat()
+            energy = d.level.coerceIn(0f, 1f)
+        } else {
+            val t = System.nanoTime() / 1e9
+            sway = (sin(t * 1.4) * 0.3).toFloat()
+            kick = (0.06 * (sin(t * 2.8) + 1.0)).toFloat()
+        }
+        drawRect(Color(0xFF05060C))
+        drawCircle(
+            Color(0xFFFFC21A).copy(alpha = 0.10f + 0.35f * energy * kick),
+            radius = w * (0.40f + 0.12f * kick),
+            center = Offset(w / 2f, h * 0.55f),
+        )
+        val piv = Offset(w / 2f, h)
+        translate(0f, -kick * h * 0.07f) {
+            rotate(sway * 5f, piv) {
+                scale(1f + 0.05f * kick, 1f - 0.04f * kick, piv) {
+                    drawImage(
+                        img,
+                        srcOffset = IntOffset.Zero,
+                        srcSize = IntSize(img.width, img.height),
+                        dstOffset = IntOffset.Zero,
+                        dstSize = IntSize(w.toInt(), h.toInt()),
+                        filterQuality = FilterQuality.Medium,
+                    )
+                }
+            }
+        }
     }
 }

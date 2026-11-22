@@ -230,7 +230,7 @@ fun TopBar(
             PadButton(Modifier.width(52.dp).height(40.dp), accent = C.Orange, onClick = onEq) {
                 Label("EQ", color = C.Orange, size = 15.sp)
             }
-            VuMeter(vm.engine, clock, Modifier.width(96.dp).height(26.dp))
+            DjBee(vm.engine, clock, Modifier.size(48.dp).clip(RoundedCornerShape(10.dp)))
             MasterBox(vm, Modifier.width(150.dp))
             MuteButton(vm, Modifier.size(44.dp))
             StopAllButton(vm, Modifier.height(40.dp).width(92.dp))
@@ -247,11 +247,13 @@ fun TopBar(
                 StopAllButton(vm, Modifier.height(36.dp).width(88.dp))
             }
             Row(
-                Modifier.fillMaxWidth().height(38.dp),
+                Modifier.fillMaxWidth().height(46.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                VuMeter(vm.engine, clock, Modifier.weight(1f).height(26.dp))
+                Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                    DjBee(vm.engine, clock, Modifier.size(46.dp).clip(RoundedCornerShape(10.dp)))
+                }
                 PadButton(Modifier.width(46.dp).height(34.dp), accent = C.Orange, onClick = onEq) {
                     Label("EQ", color = C.Orange, size = 14.sp)
                 }
@@ -635,7 +637,15 @@ private fun LoopRow(vm: MixerViewModel, idx: Int, accent: Color, h: Dp, modifier
 private fun FxPanel(vm: MixerViewModel, modifier: Modifier) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth().height(28.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Label("DROPS", color = C.Dim, size = 11.sp, modifier = Modifier.weight(1f))
+            Label("DROPS", color = C.Dim, size = 11.sp)
+            Spacer(Modifier.weight(1f))
+            PadButton(Modifier.size(26.dp), accent = C.Dim, onClick = { vm.stepDropVol(-0.1f) }) {
+                Label("\u2212", color = C.Text, size = 16.sp)
+            }
+            Label("${(vm.dropVol * 100).roundToInt()}%", color = C.Yellow, size = 11.sp, modifier = Modifier.width(34.dp))
+            PadButton(Modifier.size(26.dp), accent = C.Dim, onClick = { vm.stepDropVol(0.1f) }) {
+                Label("+", color = C.Text, size = 16.sp)
+            }
             PadButton(Modifier.height(26.dp), accent = C.Green, onClick = { vm.screen = Screen.DROPS }) {
                 Label("ALL DROPS \u203A", color = C.Green, size = 11.sp, modifier = Modifier.padding(horizontal = 8.dp))
             }

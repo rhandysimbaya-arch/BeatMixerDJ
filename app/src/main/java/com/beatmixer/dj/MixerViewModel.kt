@@ -60,6 +60,8 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
     val playlists = mutableStateListOf<Playlist>()
     var playlistSel by mutableStateOf(-1)
     var longPlayingId by mutableStateOf(-1)
+    var dropVol by mutableStateOf(prefs.getFloat("dropVol", 1f))
+        private set
     private var longTrackId = -1
     private var longLoading = false
     var miniWide by mutableStateOf(false)
@@ -165,6 +167,7 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
         guard { refreshRecordings() }
         guard { initDrops() }
         guard { initSounds() }
+        guard { engine.longPlayer.gain = dropVol }
         viewModelScope.launch(safe) {
             while (true) {
                 try {
@@ -365,7 +368,18 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         val s = d.sample ?: return
-        engine.triggerDrop(s, 1f)
+        engine.triggerDrop(s, dropVol)
+    }
+
+    fun stepDropVol(delta: Float) {
+        val n = ((dropVol + delta) * 10f).roundToInt() / 10f
+        updateDropVol(n.coerceIn(0f, 1.5f))
+    }
+
+    private fun updateDropVol(x: Float) {
+        dropVol = x
+        engine.longPlayer.gain = x
+        prefs.edit().putFloat("dropVol", x).apply()
     }
 
     fun toggleLong(item: DropItem) {
