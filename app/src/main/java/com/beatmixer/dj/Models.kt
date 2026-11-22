@@ -48,7 +48,23 @@ class DropItem(val index: Int, val defaultName: String, val builtin: Boolean = t
 /** Drops in this category play the whole file (no 8 second limit). Tap again to stop. */
 const val LONG_CATEGORY = "FULL LENGTH"
 
-val DEFAULT_DROP_CATEGORIES = listOf("HORNS", "FX", "BASS", "PERCUSSION", "VOICE")
+val DEFAULT_DROP_CATEGORIES = listOf("CROWD", "FX", "VOICE", "HORNS", "BASS", "PERCUSSION")
+
+/** Sound files bundled inside the APK (res/raw): display name, raw resource name, category. */
+class BundledDrop(val name: String, val res: String, val category: String)
+
+const val BUNDLED_BASE = 200
+
+val BUNDLED_DROPS = listOf(
+    BundledDrop("Applause 1", "applause_1", "CROWD"),
+    BundledDrop("Applause 2", "applause_2", "CROWD"),
+    BundledDrop("Congratulations", "congratulations", "CROWD"),
+    BundledDrop("Nani", "nani", "VOICE"),
+    BundledDrop("Siren", "siren", "FX"),
+    BundledDrop("Suspense", "suspense", "FX"),
+    BundledDrop("Wait a Minute", "wait_a_minute", "VOICE"),
+    BundledDrop("Yamete Kudasai", "yamete_kudasai", "VOICE"),
+)
 
 /** Category of each built-in drop, by its position in DropSynth.all. */
 val BUILTIN_DROP_CATEGORY = listOf(

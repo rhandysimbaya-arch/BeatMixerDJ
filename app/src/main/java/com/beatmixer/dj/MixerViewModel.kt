@@ -116,7 +116,7 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
     val queue = mutableStateListOf<Song>()
     val recFiles = mutableStateListOf<File>()
     val drops = mutableStateListOf<DropItem>().apply {
-        addAll(DropSynth.all.mapIndexed { i, d -> DropItem(i, d.name).also { it.category = BUILTIN_DROP_CATEGORY.getOrElse(i) { "FX" } } })
+        addAll(BUNDLED_DROPS.mapIndexed { i, d -> DropItem(BUNDLED_BASE + i, d.name).also { it.category = d.category } })
     }
     val categories = mutableStateListOf<String>()
 
@@ -273,6 +273,7 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
         val cs = prefs.getString("dropCats", null)
         categories.clear()
         if (cs == null) categories.addAll(DEFAULT_DROP_CATEGORIES) else categories.addAll(cs.split("\n").filter { it.isNotBlank() })
+        for (b in BUNDLED_DROPS) if (b.category !in categories) categories.add(0, b.category)
         if (LONG_CATEGORY !in categories) categories.add(LONG_CATEGORY)
         for (d in drops.toList()) {
             val sc = prefs.getString("dropCat_" + d.index, null)
@@ -289,12 +290,11 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
             drops.add(it)
         }
         viewModelScope.launch {
-            val defs = DropSynth.all
-            val samples = withContext(Dispatchers.Default) { defs.map { it.gen() } }
-            val favStr = prefs.getString("favs", null)
+            val samples = withContext(Dispatchers.Default) { BUNDLED_DROPS.map { bundledSample(it) } }
+            val favStr = prefs.getString("favs2", null)
             val favSet = favStr?.split(",")?.mapNotNull { it.toIntOrNull() }?.toSet()
             for (item in drops.toList()) {
-                if (item.builtin) item.sample = samples.getOrNull(item.index)
+                if (item.builtin) item.sample = samples.getOrNull(item.index - BUNDLED_BASE)
                 if (favSet != null) item.fav = item.index in favSet
                 val nm = prefs.getString("dropName_" + item.index, null)
                 if (nm != null) item.name = nm
@@ -311,8 +311,11 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun decodeDrop(uri: Uri): ShortArray? {
-        val st = Decoder.decodeStereo(ctx, uri, 8) ?: return null
+    private fun bundledSample(b: BundledDrop): ShortArray? =
+        decodeDrop(Uri.parse("android.resource://" + ctx.packageName + "/raw/" + b.res), 20)
+
+    private fun decodeDrop(uri: Uri, maxSec: Int = 8): ShortArray? {
+        val st = Decoder.decodeStereo(ctx, uri, maxSec) ?: return null
         val frames = st.size / 2
         val mono = FloatArray(frames)
         var peak = 1e-6f
@@ -404,7 +407,7 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
     fun toggleFav(idx: Int) {
         val d = drop(idx) ?: return
         d.fav = !d.fav
-        prefs.edit().putString("favs", drops.filter { it.fav }.joinToString(",") { it.index.toString() }).apply()
+        prefs.edit().putString("favs2", drops.filter { it.fav }.joinToString(",") { it.index.toString() }).apply()
     }
 
     fun renameDrop(idx: Int, name: String) {
@@ -491,7 +494,7 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
         val d = drop(idx) ?: return
         if (!d.builtin) return
         viewModelScope.launch {
-            d.sample = withContext(Dispatchers.Default) { DropSynth.all[idx].gen() }
+            d.sample = withContext(Dispatchers.Default) { bundledSample(BUNDLED_DROPS[idx - BUNDLED_BASE]) }
             d.custom = false
             d.name = d.defaultName
             prefs.edit().remove("dropUri_$idx").remove("dropName_$idx").apply()
