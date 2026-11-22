@@ -50,6 +50,11 @@ class Deck(val id: Int) {
     @Volatile var seekReq: Double = Double.NaN
     @Volatile var cuePoint: Double = 0.0
     @Volatile var level: Float = 0f
+    @Volatile var scratching: Boolean = false
+    @Volatile var scratchTarget: Float = 0f
+    @Volatile var scratchStamp: Long = 0L
+    private var scrCur = 0f
+    private var scrOn = false
 
     val rate: Double get() = 1.0 + tempoPct / 100.0
 
@@ -89,6 +94,10 @@ class Deck(val id: Int) {
         val step = rate
         val ls = loopStart
         val le = loopEnd
+        val scr = scratching && t != null && total > 4
+        if (scr && !scrOn) scrCur = if (play) step.toFloat() else 0f
+        scrOn = scr
+        val scrTgt = if (scr && System.nanoTime() - scratchStamp < 90_000_000L) scratchTarget else 0f
 
         // --- filter coefficients (TPT state-variable filter)
         val f = filter
@@ -130,7 +139,17 @@ class Deck(val id: Int) {
         for (i in 0 until n) {
             var l = 0f
             var r = 0f
-            if (play) {
+            if (scr) {
+                scrCur += (scrTgt - scrCur) * 0.012f
+                val ip = pos.toInt()
+                if (ip >= 0 && ip < total - 2 && ip + 3 < ready) {
+                    val fr = (pos - ip).toFloat()
+                    val b = ip * 2
+                    l = (p[b] + (p[b + 2] - p[b]) * fr) * (1f / 32768f)
+                    r = (p[b + 1] + (p[b + 3] - p[b + 1]) * fr) * (1f / 32768f)
+                }
+                pos = (pos + scrCur).coerceIn(0.0, max(0.0, total - 3.0))
+            } else if (play) {
                 if (le > 0.0 && pos >= le) pos = ls + (pos - le)
                 val ip = pos.toInt()
                 if (ip >= total - 2 || ip < 0) {

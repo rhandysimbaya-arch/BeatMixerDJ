@@ -230,7 +230,7 @@ fun TopBar(
             PadButton(Modifier.width(52.dp).height(40.dp), accent = C.Orange, onClick = onEq) {
                 Label("EQ", color = C.Orange, size = 15.sp)
             }
-            DjBee(vm.engine, clock, Modifier.size(48.dp).clip(RoundedCornerShape(10.dp)))
+            VuMeter(vm.engine, clock, Modifier.width(96.dp).height(26.dp))
             MasterBox(vm, Modifier.width(150.dp))
             MuteButton(vm, Modifier.size(44.dp))
             StopAllButton(vm, Modifier.height(40.dp).width(92.dp))
@@ -247,13 +247,11 @@ fun TopBar(
                 StopAllButton(vm, Modifier.height(36.dp).width(88.dp))
             }
             Row(
-                Modifier.fillMaxWidth().height(46.dp),
+                Modifier.fillMaxWidth().height(38.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
-                    DjBee(vm.engine, clock, Modifier.size(46.dp).clip(RoundedCornerShape(10.dp)))
-                }
+                VuMeter(vm.engine, clock, Modifier.weight(1f).height(26.dp))
                 PadButton(Modifier.width(46.dp).height(34.dp), accent = C.Orange, onClick = onEq) {
                     Label("EQ", color = C.Orange, size = 14.sp)
                 }
