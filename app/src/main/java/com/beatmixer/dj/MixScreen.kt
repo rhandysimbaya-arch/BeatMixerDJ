@@ -79,6 +79,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -633,15 +634,15 @@ private fun FxPanel(vm: MixerViewModel, modifier: Modifier) {
                 Label("ALL DROPS \u203A", color = C.Green, size = 11.sp, modifier = Modifier.padding(horizontal = 8.dp))
             }
         }
-        val list = vm.drops.filter { it.fav }.ifEmpty { vm.drops.toList() }
+        val list = vm.drops.filter { it.fav }.ifEmpty { vm.drops.toList() }.take(6)
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(66.dp),
+            columns = GridCells.Adaptive(58.dp),
             modifier = Modifier.weight(1f).fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             items(list, key = { it.index }) { item ->
-                DropPad(item, vm, Modifier.fillMaxWidth().height(34.dp))
+                DropPad(item, vm, Modifier.fillMaxWidth().height(28.dp), showStar = false, textSize = 12.sp)
             }
         }
         Row(Modifier.fillMaxWidth().height(38.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -694,7 +695,7 @@ private val dropBg = listOf(Color(0xFF2A0505), Color(0xFF1E1E1E), Color(0xFF1414
 private fun dropAccent(k: Int): Color = when (k) { 0 -> C.Orange; 1 -> C.Green; else -> C.Blue }
 
 @Composable
-fun DropPad(item: DropItem, vm: MixerViewModel, modifier: Modifier = Modifier, onLongClick: (() -> Unit)? = null) {
+fun DropPad(item: DropItem, vm: MixerViewModel, modifier: Modifier = Modifier, onLongClick: (() -> Unit)? = null, showStar: Boolean = true, textSize: TextUnit = 14.sp) {
     val k = item.index % 3
     val playingLong = item.long && vm.longPlayingId == item.index
     PadButton(
@@ -709,8 +710,8 @@ fun DropPad(item: DropItem, vm: MixerViewModel, modifier: Modifier = Modifier, o
         Box(
             Modifier.align(Alignment.TopCenter).fillMaxWidth().height(3.dp).background(dropAccent(k)),
         )
-        Label((if (item.long) (if (playingLong) "\u25A0 " else "\u25B6 ") else "") + item.name, color = C.Text, size = 14.sp)
-        Icon(
+        Label((if (item.long) (if (playingLong) "\u25A0 " else "\u25B6 ") else "") + item.name, color = C.Text, size = textSize)
+        if (showStar) Icon(
             if (item.fav) Icons.Filled.Star else Icons.Filled.StarBorder,
             null,
             tint = C.Yellow,
