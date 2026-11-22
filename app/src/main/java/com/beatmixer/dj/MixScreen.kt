@@ -389,6 +389,9 @@ fun DeckPanel(
             PadButton(Modifier.weight(1f).height(btnH), accent = accent, onClick = { vm.sync(idx) }) {
                 Label("SYNC", color = accent, size = 15.sp)
             }
+            PadButton(Modifier.weight(0.8f).height(btnH), accent = C.Yellow, onClick = { vm.setTempo(idx, 0f) }) {
+                Label("0%", color = C.Yellow, size = 14.sp)
+            }
         }
 
         val rh = if (dense) 26.dp else 30.dp
@@ -521,6 +524,9 @@ fun DeckMini(vm: MixerViewModel, clock: UiClock, idx: Int, onLoad: () -> Unit, m
             PadButton(Modifier.weight(1f).height(32.dp), accent = accent, onClick = { vm.sync(idx) }) {
                 Label("SYNC", color = accent, size = 13.sp)
             }
+            PadButton(Modifier.weight(0.8f).height(32.dp), accent = C.Yellow, onClick = { vm.setTempo(idx, 0f) }) {
+                Label("0%", color = C.Yellow, size = 12.sp)
+            }
         }
     }
 }
@@ -634,7 +640,7 @@ private fun FxPanel(vm: MixerViewModel, modifier: Modifier) {
                 Label("ALL DROPS \u203A", color = C.Green, size = 11.sp, modifier = Modifier.padding(horizontal = 8.dp))
             }
         }
-        val list = vm.drops.filter { it.fav }.ifEmpty { vm.drops.toList() }.take(9)
+        val list = vm.drops.filter { it.fav }.ifEmpty { vm.drops.toList() }
         LazyVerticalGrid(
             columns = GridCells.Adaptive(58.dp),
             modifier = Modifier.weight(1f).fillMaxWidth(),
