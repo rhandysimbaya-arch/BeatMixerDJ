@@ -183,6 +183,24 @@ fun BeatApp(vm: MixerViewModel = viewModel()) {
     LaunchedEffect(vm.screen) {
         if (vm.screen == Screen.TOOLS) vm.refreshRecordings()
     }
+    var crashText by remember {
+        mutableStateOf(
+            try {
+                val f = java.io.File(ctx.filesDir, "crash.txt")
+                if (f.exists()) f.readText().also { f.delete() } else null
+            } catch (e: Exception) {
+                null
+            },
+        )
+    }
+    if (crashText != null) {
+        AlertDialog(
+            onDismissRequest = { crashText = null },
+            title = { Text("The app restarted after an error") },
+            text = { Text(crashText!!.take(700), fontSize = 10.sp, modifier = Modifier.verticalScroll(rememberScrollState())) },
+            confirmButton = { TextButton(onClick = { crashText = null }) { Text("OK") } },
+        )
+    }
     var exitOpen by remember { mutableStateOf(false) }
     var navOpen by remember { mutableStateOf(false) }
     BackHandler(enabled = true) {

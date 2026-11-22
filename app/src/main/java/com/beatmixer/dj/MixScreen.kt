@@ -634,7 +634,7 @@ private fun FxPanel(vm: MixerViewModel, modifier: Modifier) {
                 Label("ALL DROPS \u203A", color = C.Green, size = 11.sp, modifier = Modifier.padding(horizontal = 8.dp))
             }
         }
-        val list = vm.drops.filter { it.fav }.ifEmpty { vm.drops.toList() }.take(6)
+        val list = vm.drops.filter { it.fav }.ifEmpty { vm.drops.toList() }.take(9)
         LazyVerticalGrid(
             columns = GridCells.Adaptive(58.dp),
             modifier = Modifier.weight(1f).fillMaxWidth(),

@@ -48,6 +48,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -447,7 +448,7 @@ fun MusicScreen(
             )
             val list = vm.visibleSongs().filter { q.isBlank() || it.title.contains(q, true) || it.artist.contains(q, true) }
             LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                items(list, key = { it.uri.toString() }) { s ->
+                itemsIndexed(list, key = { i, s -> i.toString() + s.uri.toString() }) { _, s ->
                     SongRow(vm, s)
                 }
             }
@@ -712,7 +713,7 @@ fun MixLibrary(vm: MixerViewModel, modifier: Modifier = Modifier, mini: Boolean 
             )
         }
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            items(list, key = { it.uri.toString() }) { s -> SongRow(vm, s, true) }
+            itemsIndexed(list, key = { i, s -> i.toString() + s.uri.toString() }) { _, s -> SongRow(vm, s, true) }
         }
     }
 }

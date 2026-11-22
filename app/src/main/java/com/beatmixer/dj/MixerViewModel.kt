@@ -41,6 +41,7 @@ import kotlin.math.roundToInt
 class MixerViewModel(app: Application) : AndroidViewModel(app) {
     private val ctx: Context = app.applicationContext
     private val prefs = ctx.getSharedPreferences("beatmixer", Context.MODE_PRIVATE)
+    private val safe = kotlinx.coroutines.CoroutineExceptionHandler { _, e -> android.util.Log.e("BeatMixer", "background task failed", e) }
 
     val engine = MixEngine()
 
@@ -144,18 +145,30 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    private inline fun guard(block: () -> Unit) {
+        try {
+            block()
+        } catch (e: Throwable) {
+            android.util.Log.e("BeatMixer", "startup step failed", e)
+        }
+    }
+
     init {
-        engine.start()
-        loadPrefs()
-        am.registerAudioDeviceCallback(deviceCb, null)
-        updateOutput()
-        refreshLibrary()
-        refreshRecordings()
-        initDrops()
-        initSounds()
-        viewModelScope.launch {
+        guard { engine.start() }
+        guard { loadPrefs() }
+        guard { am.registerAudioDeviceCallback(deviceCb, null) }
+        guard { updateOutput() }
+        guard { refreshLibrary() }
+        guard { refreshRecordings() }
+        guard { initDrops() }
+        guard { initSounds() }
+        viewModelScope.launch(safe) {
             while (true) {
-                tick()
+                try {
+                    tick()
+                } catch (e: Exception) {
+                    android.util.Log.e("BeatMixer", "tick failed", e)
+                }
                 delay(100)
             }
         }
@@ -289,8 +302,16 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
             it.uri = prefs.getString("udUri_$id", "") ?: ""
             drops.add(it)
         }
-        viewModelScope.launch {
-            val samples = withContext(Dispatchers.Default) { BUNDLED_DROPS.map { bundledSample(it) } }
+        viewModelScope.launch(safe) {
+            val samples = withContext(Dispatchers.Default) {
+                BUNDLED_DROPS.map {
+                    try {
+                        bundledSample(it)
+                    } catch (e: Throwable) {
+                        null
+                    }
+                }
+            }
             val favStr = prefs.getString("favs2", null)
             val favSet = favStr?.split(",")?.mapNotNull { it.toIntOrNull() }?.toSet()
             for (item in drops.toList()) {
@@ -302,7 +323,13 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
             for (item in drops.toList()) {
                 if (item.long) continue
                 val u = (if (item.builtin) prefs.getString("dropUri_" + item.index, null) else prefs.getString("udUri_" + item.index, null)) ?: continue
-                val custom = withContext(Dispatchers.Default) { decodeDrop(Uri.parse(u)) }
+                val custom = withContext(Dispatchers.Default) {
+                    try {
+                        decodeDrop(Uri.parse(u))
+                    } catch (e: Throwable) {
+                        null
+                    }
+                }
                 if (custom != null) {
                     item.sample = custom
                     item.custom = true
@@ -356,7 +383,7 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
         if (longLoading || item.uri.isBlank()) return
         longLoading = true
         toast("Loading " + item.name + "...")
-        viewModelScope.launch {
+        viewModelScope.launch(safe) {
             val t = withContext(Dispatchers.IO) {
                 try {
                     Decoder.startTrack(ctx, Song(Uri.parse(item.uri), item.name, "", 0L)) { }
@@ -418,7 +445,7 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setCustomDrop(idx: Int, uri: Uri) {
-        viewModelScope.launch {
+        viewModelScope.launch(safe) {
             try {
                 ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             } catch (_: Exception) {
@@ -449,7 +476,7 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
             addLongDrop(name, uri)
             return
         }
-        viewModelScope.launch {
+        viewModelScope.launch(safe) {
             try {
                 ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             } catch (_: Exception) {
@@ -493,7 +520,7 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
     fun resetDrop(idx: Int) {
         val d = drop(idx) ?: return
         if (!d.builtin) return
-        viewModelScope.launch {
+        viewModelScope.launch(safe) {
             d.sample = withContext(Dispatchers.Default) { bundledSample(BUNDLED_DROPS[idx - BUNDLED_BASE]) }
             d.custom = false
             d.name = d.defaultName
@@ -528,7 +555,7 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------- library
     fun refreshLibrary() {
-        viewModelScope.launch {
+        viewModelScope.launch(safe) {
             scanning = true
             val fu = folderUri
             if (folderMode && fu != null) {
@@ -701,7 +728,7 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun addFiles(uris: List<Uri>) {
         if (uris.isEmpty()) return
-        viewModelScope.launch {
+        viewModelScope.launch(safe) {
             val added = withContext(Dispatchers.IO) { uris.map { songFromUri(it) } }
             for (s in added) if (extras.none { it.uri == s.uri }) extras.add(s)
             saveExtras()
@@ -711,7 +738,7 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun loadFromUri(deck: Int, uri: Uri) {
-        viewModelScope.launch {
+        viewModelScope.launch(safe) {
             val s = withContext(Dispatchers.IO) { songFromUri(uri) }
             loadSong(deck, s)
         }
@@ -748,7 +775,7 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
             val r = engine.recorder
             engine.recorder = null
             recording = false
-            viewModelScope.launch {
+            viewModelScope.launch(safe) {
                 withContext(Dispatchers.IO) { r?.stop() }
                 refreshRecordings()
                 toast("Recording saved in Tools")
@@ -792,7 +819,7 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
         d.playing = false
         d.braking = false
         deckUi[deck] = deckUi[deck].copy(loading = true, title = song.title, artist = "Loading...")
-        viewModelScope.launch {
+        viewModelScope.launch(safe) {
             val t = withContext(Dispatchers.IO) {
                 try {
                     Decoder.startTrack(ctx, song) { tr ->
@@ -1325,7 +1352,7 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         dTo.playing = true
-        transitionJob = viewModelScope.launch {
+        transitionJob = viewModelScope.launch(safe) {
             val startCf = crossfader
             val endCf = if (to == 1) 1f else 0f
             val t0 = System.nanoTime()
