@@ -59,6 +59,12 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
     val loopSize = mutableStateListOf(4f, 4f)
     val playlists = mutableStateListOf<Playlist>()
     var playlistSel by mutableStateOf(-1)
+
+    // ---- online search (-2 = ONLINE tab)
+    val onlineResults = mutableStateListOf<Song>()
+    var onlineBusy by mutableStateOf(false)
+    var onlineSource by mutableStateOf(0)
+    var onlineMsg by mutableStateOf("Type a song or artist and press SEARCH")
     var longPlayingId by mutableStateOf(-1)
     var dropVol by mutableStateOf(prefs.getFloat("dropVol", 1f))
         private set
@@ -827,6 +833,113 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ---------- deck loading / transport
+    private fun httpGet(url: String): String {
+        val c = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+        c.connectTimeout = 10000
+        c.readTimeout = 20000
+        c.setRequestProperty("User-Agent", "RBProAudio/1.0")
+        try {
+            val code = c.responseCode
+            if (code !in 200..299) throw java.io.IOException("HTTP $code")
+            return c.inputStream.bufferedReader().use { it.readText() }
+        } finally {
+            c.disconnect()
+        }
+    }
+
+    fun searchOnline(q: String) {
+        val query = q.trim()
+        if (query.isEmpty() || onlineBusy) return
+        onlineBusy = true
+        onlineMsg = "Searching..."
+        val src = onlineSource
+        viewModelScope.launch(safe) {
+            val enc = java.net.URLEncoder.encode(query, "UTF-8")
+            val res: List<Song>? = withContext(Dispatchers.IO) {
+                try {
+                    val out = ArrayList<Song>()
+                    if (src == 0) {
+                        val js = org.json.JSONObject(httpGet("https://api.audius.co/v1/tracks/search?query=$enc&limit=30&app_name=RBProAudio"))
+                        val arr = js.getJSONArray("data")
+                        for (i in 0 until arr.length()) {
+                            val o = arr.getJSONObject(i)
+                            if (o.has("is_streamable") && !o.optBoolean("is_streamable", true)) continue
+                            val id = o.getString("id")
+                            val artist = o.optJSONObject("user")?.optString("name", "") ?: ""
+                            out.add(
+                                Song(
+                                    Uri.parse("https://api.audius.co/v1/tracks/$id/stream?app_name=RBProAudio"),
+                                    o.optString("title", "Untitled"),
+                                    artist,
+                                    o.optLong("duration", 0L) * 1000L,
+                                ),
+                            )
+                        }
+                    } else {
+                        val js = org.json.JSONObject(httpGet("https://api.deezer.com/search?q=$enc&limit=30"))
+                        val arr = js.getJSONArray("data")
+                        for (i in 0 until arr.length()) {
+                            val o = arr.getJSONObject(i)
+                            val pv = o.optString("preview", "")
+                            if (pv.isBlank()) continue
+                            out.add(
+                                Song(
+                                    Uri.parse(pv),
+                                    o.optString("title", "Untitled"),
+                                    (o.optJSONObject("artist")?.optString("name", "") ?: "") + " (30s preview)",
+                                    30000L,
+                                ),
+                            )
+                        }
+                    }
+                    out
+                } catch (e: Throwable) {
+                    onlineMsg = "Search failed: " + (e.message ?: "no connection") + ". Check your internet."
+                    null
+                }
+            }
+            onlineBusy = false
+            if (res != null) {
+                onlineResults.clear()
+                onlineResults.addAll(res)
+                onlineMsg = if (res.isEmpty()) "No results" else ""
+            }
+        }
+    }
+
+    /** Online songs are saved to the cache first so they can be decoded, scrubbed and looped like local files. */
+    private fun localSong(song: Song): Song? {
+        val sc = song.uri.scheme ?: return song
+        if (sc != "http" && sc != "https") return song
+        val dir = java.io.File(ctx.cacheDir, "online")
+        dir.mkdirs()
+        val f = java.io.File(dir, Integer.toHexString(song.uri.toString().hashCode()) + ".mp3")
+        if (!f.exists() || f.length() < 1024) {
+            val tmp = java.io.File(dir, f.name + ".part")
+            val c = java.net.URL(song.uri.toString()).openConnection() as java.net.HttpURLConnection
+            c.connectTimeout = 10000
+            c.readTimeout = 30000
+            c.setRequestProperty("User-Agent", "RBProAudio/1.0")
+            try {
+                if (c.responseCode !in 200..299) return null
+                c.inputStream.use { ins -> tmp.outputStream().use { ins.copyTo(it) } }
+            } finally {
+                c.disconnect()
+            }
+            tmp.renameTo(f)
+            var all = dir.listFiles()?.filter { it.isFile }?.sortedBy { it.lastModified() } ?: emptyList()
+            var size = all.sumOf { it.length() }
+            for (old in all) {
+                if (size <= 300L * 1024 * 1024) break
+                if (old != f) {
+                    size -= old.length()
+                    old.delete()
+                }
+            }
+        }
+        return Song(Uri.fromFile(f), song.title, song.artist, song.durationMs)
+    }
+
     fun loadSong(deck: Int, song: Song, thenPlay: Boolean = false) {
         if (deckUi[deck].loading) return
         val d = engine.decks[deck]
@@ -836,7 +949,8 @@ class MixerViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(safe) {
             val t = withContext(Dispatchers.IO) {
                 try {
-                    Decoder.startTrack(ctx, song) { tr ->
+                    val local = localSong(song) ?: return@withContext null
+                    Decoder.startTrack(ctx, local) { tr ->
                         if (tr.bpm <= 0f) messages.tryEmit("BPM not detected for ${tr.title}")
                     }
                 } catch (e: Throwable) {

@@ -597,7 +597,7 @@ fun SongRow(vm: MixerViewModel, s: Song, compact: Boolean = false) {
 }
 
 @Composable
-fun PlaylistBar(vm: MixerViewModel, compact: Boolean = false, modifier: Modifier = Modifier) {
+fun PlaylistBar(vm: MixerViewModel, compact: Boolean = false, modifier: Modifier = Modifier, showOnline: Boolean = false) {
     var creating by remember { mutableStateOf(false) }
     var managing by remember { mutableStateOf<Playlist?>(null) }
     val h = if (compact) 28.dp else 34.dp
@@ -613,6 +613,15 @@ fun PlaylistBar(vm: MixerViewModel, compact: Boolean = false, modifier: Modifier
             activeFill = C.Orange.copy(alpha = 0.28f),
             onClick = { vm.playlistSel = -1 },
         ) { Label("ALL MUSIC", color = C.Orange, size = 11.sp, modifier = Modifier.padding(horizontal = 10.dp)) }
+        if (showOnline) {
+            PadButton(
+                Modifier.height(h),
+                accent = C.Yellow,
+                active = vm.playlistSel == -2,
+                activeFill = C.Yellow.copy(alpha = 0.28f),
+                onClick = { vm.playlistSel = -2 },
+            ) { Label("ONLINE", color = C.Yellow, size = 11.sp, modifier = Modifier.padding(horizontal = 10.dp)) }
+        }
         for (p in vm.playlists.toList()) {
             PadButton(
                 Modifier.height(h),
@@ -675,13 +684,14 @@ fun PlaylistBar(vm: MixerViewModel, compact: Boolean = false, modifier: Modifier
 @Composable
 fun MixLibrary(vm: MixerViewModel, modifier: Modifier = Modifier, mini: Boolean = false, onToggle: (() -> Unit)? = null) {
     var q by remember { mutableStateOf("") }
+    val online = vm.playlistSel == -2
     val shape = RoundedCornerShape(14.dp)
     Column(
         modifier.clip(shape).background(C.Panel).border(1.dp, C.Border, shape).padding(6.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            PlaylistBar(vm, true, Modifier.weight(1f))
+            PlaylistBar(vm, true, Modifier.weight(1f), showOnline = true)
             if (onToggle != null) {
                 PadButton(Modifier.height(28.dp), accent = C.Green, onClick = onToggle) {
                     Label(if (mini) "FULL DECKS" else "BIG LIST", color = C.Green, size = 10.sp, modifier = Modifier.padding(horizontal = 8.dp))
@@ -693,17 +703,35 @@ fun MixLibrary(vm: MixerViewModel, modifier: Modifier = Modifier, mini: Boolean 
                 singleLine = true,
                 textStyle = TextStyle(color = C.Text, fontSize = 13.sp),
                 cursorBrush = SolidColor(C.Orange),
-                modifier = Modifier.width(130.dp).height(28.dp).clip(RoundedCornerShape(6.dp)).background(C.Panel2).padding(horizontal = 8.dp, vertical = 5.dp),
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+                keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { if (online) vm.searchOnline(q) }),
+                modifier = Modifier.width(if (online) 170.dp else 130.dp).height(28.dp).clip(RoundedCornerShape(6.dp)).background(C.Panel2).padding(horizontal = 8.dp, vertical = 5.dp),
                 decorationBox = { inner ->
                     Box {
-                        if (q.isEmpty()) Text("Search songs", color = C.Dim, fontSize = 12.sp, maxLines = 1)
+                        if (q.isEmpty()) Text(if (online) "Search online" else "Search songs", color = C.Dim, fontSize = 12.sp, maxLines = 1)
                         inner()
                     }
                 },
             )
+            if (online) {
+                PadButton(Modifier.height(28.dp), accent = C.Yellow, onClick = { vm.searchOnline(q) }) {
+                    Label(if (vm.onlineBusy) "..." else "SEARCH", color = C.Yellow, size = 10.sp, modifier = Modifier.padding(horizontal = 8.dp))
+                }
+            }
         }
-        val list = vm.visibleSongs().filter { q.isBlank() || it.title.contains(q, true) || it.artist.contains(q, true) }
-        if (list.isEmpty()) {
+        if (online) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                PadButton(Modifier.height(26.dp), accent = C.Green, active = vm.onlineSource == 0, activeFill = C.Green.copy(alpha = 0.28f), onClick = { vm.onlineSource = 0 }) {
+                    Label("FULL TRACKS (Audius)", color = C.Green, size = 10.sp, modifier = Modifier.padding(horizontal = 8.dp))
+                }
+                PadButton(Modifier.height(26.dp), accent = C.Blue, active = vm.onlineSource == 1, activeFill = C.Blue.copy(alpha = 0.28f), onClick = { vm.onlineSource = 1 }) {
+                    Label("30s PREVIEWS (Deezer)", color = C.Blue, size = 10.sp, modifier = Modifier.padding(horizontal = 8.dp))
+                }
+                if (vm.onlineMsg.isNotEmpty()) Label(vm.onlineMsg, color = C.Dim, size = 10.sp, weight = FontWeight.Normal, maxLines = 1)
+            }
+        }
+        val list = if (online) vm.onlineResults.toList() else vm.visibleSongs().filter { q.isBlank() || it.title.contains(q, true) || it.artist.contains(q, true) }
+        if (list.isEmpty() && !online) {
             Label(
                 "No songs here. Open the MUSIC tab to allow access, choose a folder or add files.",
                 color = C.Dim,
